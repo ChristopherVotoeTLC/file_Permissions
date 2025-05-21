@@ -359,3 +359,4 @@ def GUI():
 #RUN THE SCRIPT
 if __name__ == "__main__":
     GUI()
+    print("Hello")
