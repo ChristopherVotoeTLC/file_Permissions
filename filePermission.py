@@ -1,11 +1,11 @@
 from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtGui import QKeySequence
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QLineEdit, QPushButton,
-    QLabel, QListWidget, QProgressBar, QWidget, QFileDialog
+    QLabel, QListWidget, QProgressBar, QWidget, QFileDialog, QShortcut
 )
 import sys
-from PyQt5.QtCore import Qt
 import win32security
 import win32con
 import os
@@ -126,7 +126,7 @@ def get_folder_permission(file_path):
 
         security_permission = []
 
-        #Loop through Access Control Entry, -List of who and what they have permissions to.
+        #Loop through Access Control Entry, -List of whom and what they have permissions to.
         for i in range(dacl.GetAceCount()):
             ace       = dacl.GetAce(i)
             ace_flags = ace[0][1]
@@ -264,9 +264,103 @@ class TestGUI(QMainWindow):
         self.start_gui()
 
     def start_gui(self):
-        # Set up window
+        # Set up a window
         self.setWindowTitle("Folder Permissions GUI")
-        self.setGeometry(100, 100, 800, 650)
+        self.setGeometry(100, 100, 700, 550)
+
+
+        #Syling!!
+        self.setStyleSheet("""
+    /* Main Window */
+    QMainWindow {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        color: #000000;  /* text color */
+        font-family: "Roboto", sans-serif; /* not sure which this affects yet*/
+        font-size: 18px;
+    }
+
+    /* Labels for headings*/
+    QLabel {
+        color: #000000;
+        font-size: 18px;
+        font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        padding: 5px;
+    }
+
+    /* Input fields (QLineEdit) */
+    QLineEdit {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        color: #00000; /*TEXT COLOR*/
+        font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        font-size : 15px;
+        border: 1px solid #2c3e50;
+        border-radius: 5px;
+        padding: 5px;
+    }
+    QLineEdit:focus {
+        border: 1px solid #3498db;  /* Focus color */
+    }
+
+    /* Buttons (QPushButton) */
+    QPushButton {
+        background-color: #1e2a38; /*button color*/
+        color: white;
+        border: 1px solid #2980b9;
+        border-radius: 10px;
+        padding: 7px 15px;
+        font-weight: bold;
+    }
+    QPushButton:hover {
+        background-color: #2980b9;  /* Hover effect */
+    }
+    QPushButton:pressed {
+        background-color: #1c598b;  /* Pressed effect */
+    }
+
+    /* Progress Bar */
+    QProgressBar {
+        text-align: center;
+        color: white;
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        border: 1px solid #2c3e50;
+        border-radius: 5px;
+    }
+    QProgressBar::chunk {
+        background-color: #39c45f;  /* Fill color */
+        border-radius: 5px;
+    }
+
+    /* List Widget */
+    QListWidget {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        color: #000000; /*Input field text color*/
+        border: 1px solid #2c3e50;
+        border-radius: 5px;
+        padding: 5px;
+        font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        font-size: 15px; /*affects text in list*/
+    }
+    QListWidget::item {
+        padding: 5px;
+        border: none;
+    }
+    QListWidget::item:hover {
+        
+    }
+    QListWidget::item:selected {
+        
+        color: black;
+    }
+
+    /* QFileDialog (Browse File Dialog) */
+    QFileDialog {
+        background-color: #2c3e50;
+        color: white;
+    }
+""")
 
         # Central widget and layout
         central_widget = QWidget()
@@ -290,8 +384,15 @@ class TestGUI(QMainWindow):
         layout.addWidget(project_details_label)
 
         self.project_info_list = QListWidget() #Affected by size of window, look into how to make smaller
+        self.project_info_list.setSelectionMode(QListWidget.ExtendedSelection)
         layout.addWidget(self.project_info_list)
 
+        # Enable copy and select-all shortcuts
+        copy_shortcut = QShortcut(QKeySequence("Ctrl+C"), self)
+        copy_shortcut.activated.connect(self.copy_selected_items)
+
+        select_all_shortcut = QShortcut(QKeySequence("Ctrl+A"), self)
+        select_all_shortcut.activated.connect(self.select_all_items)
 
         # Submit Button and Progress Bar Layout
         submit_button = QPushButton("Submit")
@@ -308,7 +409,7 @@ class TestGUI(QMainWindow):
         self.progress_bar.setValue(0) #maybe get rid of
         layout.addWidget(self.progress_bar)
 
-    # Used to open folder directory when browse is clicked
+    # Used to open a folder directory when browse is clicked
     def browse_folder(self):
         selected_folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if selected_folder:
@@ -334,10 +435,10 @@ class TestGUI(QMainWindow):
             self.worker.start()  # Start the worker thread
 
         except Exception as e:
-            print(F"An error occured: {e}")
+            print(F"An error occurred: {e}")
 
     def display_project_info(self, project_info):
-        self.project_info_list.clear() #Clears listbox before starting
+        self.project_info_list.clear() #Clears a listbox before starting
         if not project_info:
             self.project_info_list.addItem("No project found.")
             return
@@ -364,6 +465,16 @@ class TestGUI(QMainWindow):
         print(f"Task completed in {total_time:.2f} seconds.")
         self.progress_bar.setValue(100)
 
+    def copy_selected_items(self):
+        """Copy selected QListWidget items to clipboard."""
+        selected_items = self.project_info_list.selectedItems()
+        selected_text = "\n".join(item.text() for item in selected_items)
+        QApplication.clipboard().setText(selected_text)
+
+    def select_all_items(self):
+        """Select all items in the QListWidget."""
+        self.project_info_list.selectAll()
+
 
 # Run the application
 if __name__ == "__main__":
@@ -371,3 +482,5 @@ if __name__ == "__main__":
     test_window = TestGUI()
     test_window.show()
     sys.exit(app.exec())
+
+
