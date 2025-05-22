@@ -1,6 +1,11 @@
-import tkinter as tk
-from tkinter import ttk
-from tkinter import filedialog
+from PyQt5.QtCore import QThread, pyqtSignal
+
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QVBoxLayout, QLineEdit, QPushButton,
+    QLabel, QListWidget, QProgressBar, QWidget, QFileDialog
+)
+import sys
+from PyQt5.QtCore import Qt
 import win32security
 import win32con
 import os
@@ -179,6 +184,12 @@ def print_all_folder_permission(root_path, progress_callback =None):
     except Exception as e:
         print(f"Error: {e}")
 
+
+    num_folders = len(folder_permission_data)
+    if progress_callback:
+        progress_callback(0, num_folders)
+    i = 0
+
     with open(report_filename, 'w') as f:
         f.write(f"Below are all permission for all folders in: {root_path}\n")
         f.write("-" * 173 + "\n")
@@ -191,15 +202,11 @@ def print_all_folder_permission(root_path, progress_callback =None):
 
         try:
             for user, perm, src in root_permissions:
+                i+=1
                 f.write(f"{user:40} {perm:25} {src}\n")
             f.write("-" * 173 + "\n")
-
-            # Shows the number of folders for progress bar GUI
-            num_folders = len(folder_permission_data)
-            i = 0
-
             for folder_path, permissions in folder_permission_data.items():
-                i += 1
+
                 f.write(f"\nSubfolder: {root_path}\\{folder_path}\n")
                 f.write("-" * 173 + "\n")
                 f.write(f"{'User/Group':40} {'Permission':25} {'Source'}\n")
@@ -213,7 +220,7 @@ def print_all_folder_permission(root_path, progress_callback =None):
 
 
     if progress_callback:
-        progress_callback(i + 1, num_folders)
+        progress_callback(i , num_folders)
 
     end = time.time()
     total_time = end - start
@@ -227,135 +234,140 @@ def print_all_folder_permission(root_path, progress_callback =None):
 
     return total_time, report_filename
 
-def GUI():
-    #Updates progress bar
-    def update_progress(current, total):
-
-        progress_value = int((current / total) * 100)
-        progress_bar['value'] = progress_value
-        root.update_idletasks()
 
 
-    def handle_submit():
-        file_path_value = file_path.get().strip()
+class TestGUI(QMainWindow):
+    class FolderPermissionWorker(QThread):
+        progress_update = pyqtSignal(int)  # Signal for reporting progress
+        task_completed = pyqtSignal(float, str)  # Signal for task completion (total time and report file)
 
-        if os.path.exists(file_path_value):
-            progress_bar['value'] = 0
-            print("Processing...")
+        def __init__(self, root_path):
+            super().__init__()
+            self.root_path = root_path  # The root path for processing
 
-            # Disable the submitted/browse button to prevent multiple submissions
-            file_submit_button.config(state=tk.DISABLED)
-            browse_button.config(state=tk.DISABLED)
+        def run(self):
+            def progress_callback(current, total):
+                # Calculate the percentage progress
+                if total > 0:
+                    progress_percentage = int((current / total) * 100)
+                    self.progress_update.emit(progress_percentage)
 
-            for i in range(5):
-                progress_bar.step(10)
-                root.update_idletasks()
-                time.sleep(0.05)
+            # Call the function and process the folders
+            total_time, report_file = print_all_folder_permission(self.root_path, progress_callback)
+
+            # Emit the signal for task completion when done
+            self.task_completed.emit(total_time, report_file)
 
 
-            try:
-                handle_project_info()
-                # Generate folder permissions report
-                total_time, report_filename = print_all_folder_permission(file_path_value, update_progress)
-                # Update the file location label with the generated file's path
-                location_label.config(text=f"File saved at: {report_filename}", foreground="green")
+    def __init__(self):
+        super().__init__()
+        self.start_gui()
 
-                # Open the generated text file
-                os.startfile(report_filename)
-            except Exception as e:
-                location_label.config(text=f"An error occurred: {e}")
-                print(f"Error during file generation or project info retrieval: {e}")
+    def start_gui(self):
+        # Set up window
+        self.setWindowTitle("Folder Permissions GUI")
+        self.setGeometry(100, 100, 800, 650)
 
-            # Re-enable the submit button
-            file_submit_button.config(state=tk.NORMAL)
-            browse_button.config(state=tk.NORMAL)
-        else:
-            location_label.config(text="Error: Invalid folder path!")
-            print("Error: Path does not exist.")
+        # Central widget and layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
 
-    #Lets user browse for folder along with pasting the path
-    def allow_folder_browse():
-        sel_direct = filedialog.askdirectory()
-        if sel_direct:
-            file_path.set(sel_direct)
+        # Folder Path Input
+        folder_path_label = QLabel("Enter Folder Path:")
+        layout.addWidget(folder_path_label)
 
-    #Populates the listbox with the project information for the database
-    def handle_project_info():
-        file_path_value = file_path.get().strip()
-        if os.path.exists(file_path_value):
-            # Clear previous entries
-            project_info.delete(0, tk.END)
+        self.file_path_input = QLineEdit()
+        layout.addWidget(self.file_path_input)
 
+        # Browse Button
+        browse_button = QPushButton("Browse")
+        browse_button.clicked.connect(self.browse_folder)
+        layout.addWidget(browse_button)
+
+        # Project Details Sections
+        project_details_label = QLabel("Project Details:")
+        layout.addWidget(project_details_label)
+
+        self.project_info_list = QListWidget() #Affected by size of window, look into how to make smaller
+        layout.addWidget(self.project_info_list)
+
+
+        # Submit Button and Progress Bar Layout
+        submit_button = QPushButton("Submit")
+        submit_button.clicked.connect(self.handle_submit)
+        layout.addWidget(submit_button)
+
+        #temp
+        self.file_location_label = QLabel("File Location:")
+        layout.addWidget(self.file_location_label)
+        self.file_path = QLineEdit()
+        layout.addWidget(self.file_path)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setValue(0) #maybe get rid of
+        layout.addWidget(self.progress_bar)
+
+    # Used to open folder directory when browse is clicked
+    def browse_folder(self):
+        selected_folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+        if selected_folder:
+            self.file_path_input.setText(selected_folder)
+
+    def handle_submit(self):
+        file_path = self.file_path_input.text().strip()
+        if not file_path or not os.path.exists(file_path):
+            self.show_error_message("Invalid folder path.")
+            return
+        self.progress_bar.setValue(0)
+        try:
             db_connection = connect_db()
-            project_details = get_project_info(file_path_value,db_connection)
-            if project_details:
-                for row in project_details:
-                    project_info.insert(tk.END, f"Project Number: {row[0]}")
-                    project_info.insert(tk.END, f"Project Name: {row[1]}")
-                    project_info.insert(tk.END, f"Project Manager: {row[2]}")
-                    project_info.insert(tk.END, f"OU: {row[3]}")
-                    project_info.insert(tk.END, f"OU Project Admin: {row[4]}")
-            else:
-                project_info.insert(tk.END, "No project details found.")
-        else:
-            print("Error: Path does not exist.")
+            if db_connection:
+                # Fetch and display project details
+                project_info = get_project_info(file_path, db_connection)
+                self.display_project_info(project_info)
 
-    root = tk.Tk()
-    root.title("Folder Permissions GUI")
-    #Window
-    root.geometry("800x650")
-    #root.configure(background="light gray")
+            # Start the worker thread
+            self.worker = self.FolderPermissionWorker(file_path)
+            self.worker.progress_update.connect(self.update_progress_bar)  # Connect progress updates
+            self.worker.task_completed.connect(self.task_completed)  # Connect task completion
+            self.worker.start()  # Start the worker thread
 
-    style = ttk.Style()
-    style.configure("BW.TLabel", font=("Arial", 15))
+        except Exception as e:
+            print(F"An error occured: {e}")
 
+    def display_project_info(self, project_info):
+        self.project_info_list.clear() #Clears listbox before starting
+        if not project_info:
+            self.project_info_list.addItem("No project found.")
+            return
 
-    #Folder Path
-    file_path_label = ttk.Label(root, text="Enter Folder Path:", style="BW.TLabel")
-    file_path_label.pack(pady=10)
+        for row in project_info:
+            project_number = row[0]
+            project_name = row[1]
+            emp_name = row[2]
+            division_name = row[3]
+            division_admin = row[4]
 
-    file_path = tk.StringVar()
-    file_path_entry = ttk.Entry(root, textvariable=file_path, font=("Arial", 15), width=50)
-    file_path_entry.pack(pady=5)
+        self.project_info_list.addItem(f"Project Number: {project_number}")
+        self.project_info_list.addItem(f"Project Name: {project_name}")
+        self.project_info_list.addItem(f"Employee Name: {emp_name}")
+        self.project_info_list.addItem(f"Division Name: {division_name}")
+        self.project_info_list.addItem(f"Division Admin: {division_admin}")
 
-    # Frame to have buttons on the same line
-    same_line_button_frame = ttk.Frame(root)
-    same_line_button_frame.pack(pady=10)
+    def update_progress_bar(self, value):
 
-    #Browse
-    browse_button = ttk.Button(same_line_button_frame, text="Browse", command=allow_folder_browse,)
-    browse_button.pack(side = "left", padx=5)
+        self.progress_bar.setValue(value)
 
-    #Submit Button
-    file_submit_button = ttk.Button(same_line_button_frame, text="Submit", command=handle_submit)
-    file_submit_button.pack(side = "left",padx=10)
-
-
-    #List of Project Information
-    label = ttk.Label(root, text="Project Details", font=("Arial", 15),style="BW.TLabel")
-    label.pack(pady=10)
-    #handle_project_info()
-    project_info = tk.Listbox(root, font=("Arial", 12), width=60, height=5)
-    project_info.pack(pady=10)
-
-    same_line_progress_frame = ttk.Frame(root)
-    same_line_progress_frame.pack(pady=5)
-
-    # Progress Bar and Label
-    progress_label = ttk.Label(same_line_progress_frame, text="Progress:",font = ('Arial', 15))
-    progress_label.pack(side = 'left',padx=10)
-    progress_bar = ttk.Progressbar(same_line_progress_frame, length=300, mode="determinate")
-    progress_bar.pack(padx=10,pady=30)
-
-    # File Location Label
-    location_label_top = ttk.Label(root, text="Location of File Saved:", style="BW.TLabel",wraplength=850)
-    location_label_top.pack(pady=10)
-    location_label = ttk.Label(root, text="....", style="BW.TLabel",wraplength=850)
-    location_label.pack(pady=10)
-
-    root.mainloop()
+    def task_completed(self, total_time, report_file):
+        self.file_path.setText(report_file)
+        print(f"Task completed in {total_time:.2f} seconds.")
+        self.progress_bar.setValue(100)
 
 
-#RUN THE SCRIPT
+# Run the application
 if __name__ == "__main__":
-    GUI()
+    app = QApplication(sys.argv)
+    test_window = TestGUI()
+    test_window.show()
+    sys.exit(app.exec())
