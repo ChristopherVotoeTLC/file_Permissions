@@ -1,10 +1,10 @@
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QKeySequence
-
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QLineEdit, QPushButton,
-    QLabel, QListWidget, QProgressBar, QWidget, QFileDialog, QShortcut
+    QLabel, QListWidget, QProgressBar, QWidget, QFileDialog, QShortcut, QHBoxLayout
 )
+import qtawesome as qta
 import sys
 import win32security
 import win32con
@@ -266,7 +266,7 @@ class TestGUI(QMainWindow):
     def start_gui(self):
         # Set up a window
         self.setWindowTitle("Folder Permissions GUI")
-        self.setGeometry(100, 100, 700, 550)
+        self.setGeometry(100, 100, 700, 410)
 
 
         #Syling!!
@@ -296,7 +296,7 @@ class TestGUI(QMainWindow):
         font-family: "Roboto", sans-serif;
         font-size : 15px;
         border: 1px solid #2c3e50;
-        border-radius: 5px;
+        border-radius: 8px;
         padding: 5px;
     }
     QLineEdit:focus {
@@ -305,12 +305,15 @@ class TestGUI(QMainWindow):
 
     /* Buttons (QPushButton) */
     QPushButton {
-        background-color: #1e2a38; /*button color*/
-        color: white;
-        border: 1px solid #2980b9;
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        color: black;
+        font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        font-size : 15px;
+        border: 1px solid #2c3e50;
         border-radius: 10px;
         padding: 7px 15px;
-        font-weight: bold;
+        
     }
     QPushButton:hover {
         background-color: #2980b9;  /* Hover effect */
@@ -322,7 +325,7 @@ class TestGUI(QMainWindow):
     /* Progress Bar */
     QProgressBar {
         text-align: center;
-        color: white;
+        color: black; /*text*/
         background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
         border: 1px solid #2c3e50;
         border-radius: 5px;
@@ -371,16 +374,27 @@ class TestGUI(QMainWindow):
         folder_path_label = QLabel("Enter Folder Path:")
         layout.addWidget(folder_path_label)
 
+        # Allows items on the same line
+        self.horizontal_layout = QHBoxLayout()
+        layout.addLayout(self.horizontal_layout)
+
+        #Input line with file path
         self.file_path_input = QLineEdit()
-        layout.addWidget(self.file_path_input)
+        self.horizontal_layout.addWidget(self.file_path_input)
 
         # Browse Button
         browse_button = QPushButton("Browse")
+        browse_button.setIcon(qta.icon('fa5s.file-import'))
         browse_button.clicked.connect(self.browse_folder)
-        layout.addWidget(browse_button)
+        self.horizontal_layout.addWidget(browse_button)
+
+        # Submit Button and Progress Bar Layout
+        submit_button = QPushButton("Search")
+        submit_button.clicked.connect(self.handle_submit)
+        self.horizontal_layout.addWidget(submit_button)
 
         # Project Details Sections
-        project_details_label = QLabel("Project Details:")
+        project_details_label = QLabel("Project Details: (Ctrl + A to select all & Ctrl + C to copy)")
         layout.addWidget(project_details_label)
 
         self.project_info_list = QListWidget() #Affected by size of window, look into how to make smaller
@@ -394,12 +408,9 @@ class TestGUI(QMainWindow):
         select_all_shortcut = QShortcut(QKeySequence("Ctrl+A"), self)
         select_all_shortcut.activated.connect(self.select_all_items)
 
-        # Submit Button and Progress Bar Layout
-        submit_button = QPushButton("Submit")
-        submit_button.clicked.connect(self.handle_submit)
-        layout.addWidget(submit_button)
 
-        #temp
+
+        #Label with file location
         self.file_location_label = QLabel("File Location:")
         layout.addWidget(self.file_location_label)
         self.file_path = QLineEdit()
