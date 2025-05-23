@@ -2,7 +2,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QLineEdit, QPushButton,
-    QLabel, QListWidget, QProgressBar, QWidget, QFileDialog, QShortcut, QHBoxLayout
+    QLabel, QListWidget, QProgressBar, QWidget, QFileDialog, QShortcut, QHBoxLayout, QCheckBox
 )
 import qtawesome as qta
 import sys
@@ -24,6 +24,8 @@ PERMISSION_HIERARCH ={
     "Write": nt.FILE_GENERIC_WRITE,
     "Read": nt.FILE_GENERIC_READ,
 }
+
+
 
 #works
 def connect_db():
@@ -72,7 +74,7 @@ def get_project_info(root_path, db_connection):
         print(f"Error in get_project_info: {e}")
         return None
 
-#Evaluates the mask and determines the permission for each category.
+#Evaluates the mask and determines the permission
 def determine_hierarch(mask):
     #print(f"Debug: Determining permission for mask: {hex(mask)}")
 
@@ -116,7 +118,7 @@ def determine_hierarch(mask):
 
     return permission
 
-#List the permission for the provided folder path
+#List the permission for the provided folder path m
 def get_folder_permission(file_path):
     try:
         security_reader  = win32security.GetFileSecurity(file_path,win32security.DACL_SECURITY_INFORMATION)
@@ -156,6 +158,66 @@ def get_folder_permission(file_path):
 
     except Exception as e:
         return [("Error", str(e), "")]
+
+def get_user_permissions_only(file_path):
+    try:
+        # Retrieve the security descriptor for the given file
+        security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+        dacl = security_reader.GetSecurityDescriptorDacl()
+
+        if dacl is None:
+            return [("Error", "No DACL found", "")]
+
+        user_permissions = []
+
+        # Loop through all Access Control Entries (ACE)
+        for i in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(i)
+            ace_flags = ace[0][1]
+            mask = ace[1]  # Access mask (permissions)
+            sid = ace[2]  # Security Identifier (SID)
+
+            # Check only for "User" principals
+            principal_type = get_principal_type(sid)
+            if principal_type == "User":  # Only process users
+                try:
+                    # Retrieve DOMAIN\USERNAME from SID
+                    user, domain, _ = win32security.LookupAccountSid(None, sid)
+                    account = f"{domain}\\{user}"
+                except win32security.error:
+                    account = f"Unknown SID: {sid}"
+
+                # Determine categorized permissions based on mask
+                perms = determine_hierarch(mask)
+                permission = "".join(perms)
+
+                # Check for inheritance flags
+                if ace_flags & win32security.INHERITED_ACE:
+                    source = "Inherited from above"
+                else:
+                    source = "None"
+
+                # Append to user-specific permission results
+                user_permissions.append((account, permission, source))
+
+        return user_permissions
+
+    except Exception as e:
+        return [("Error", str(e), "")]
+
+def get_principal_type(sid):
+    try:
+        _, _, account_type = win32security.LookupAccountSid(None, sid)
+        if account_type == win32security.SidTypeUser:
+            return "User"
+        elif account_type == win32security.SidTypeGroup:
+            return "Group"
+        elif account_type == win32security.SidTypeWellKnownGroup:
+            return "Well-Known Group"
+        return "Other"
+    except win32security.error:
+        return "Unknown"
+
 
 def get_all_folder_permission(root_path):
     folder_permission = {}
@@ -234,8 +296,6 @@ def print_all_folder_permission(root_path, progress_callback =None):
 
     return total_time, report_filename
 
-
-
 class TestGUI(QMainWindow):
     class FolderPermissionWorker(QThread):
         progress_update = pyqtSignal(int)  # Signal for reporting progress
@@ -266,7 +326,7 @@ class TestGUI(QMainWindow):
     def start_gui(self):
         # Set up a window
         self.setWindowTitle("Folder Permissions GUI")
-        self.setGeometry(100, 100, 700, 410)
+        self.setGeometry(100, 100, 700, 500)
 
 
         #Syling!!
@@ -320,6 +380,13 @@ class TestGUI(QMainWindow):
     }
     QPushButton:pressed {
         background-color: #1c598b;  /* Pressed effect */
+    }
+    
+    /*Checkbox*/
+    QCheckBox {
+    font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        font-size : 15px;
     }
 
     /* Progress Bar */
@@ -390,14 +457,28 @@ class TestGUI(QMainWindow):
 
         # Submit Button and Progress Bar Layout
         submit_button = QPushButton("Search")
+        submit_button.setIcon(qta.icon('fa5s.search'))
         submit_button.clicked.connect(self.handle_submit)
         self.horizontal_layout.addWidget(submit_button)
+
+        #Inheritance Checkbox
+        inheritance_checkbox = QCheckBox("Include Inherited Permissions (Will take longer to compute)")
+        inheritance_checkbox.setChecked(False)
+        layout.addWidget(inheritance_checkbox)
+
+        show_groups_checkbox = QCheckBox("Include Groups")
+        show_groups_checkbox.setChecked(True)
+        layout.addWidget(show_groups_checkbox)
+
+        show_individuals_checkbox = QCheckBox("Include Individuals")
+        show_individuals_checkbox.setChecked(True)
+        layout.addWidget(show_individuals_checkbox)
 
         # Project Details Sections
         project_details_label = QLabel("Project Details: (Ctrl + A to select all & Ctrl + C to copy)")
         layout.addWidget(project_details_label)
 
-        self.project_info_list = QListWidget() #Affected by size of window, look into how to make smaller
+        self.project_info_list = QListWidget()
         self.project_info_list.setSelectionMode(QListWidget.ExtendedSelection)
         layout.addWidget(self.project_info_list)
 
@@ -431,13 +512,17 @@ class TestGUI(QMainWindow):
         if not file_path or not os.path.exists(file_path):
             self.show_error_message("Invalid folder path.")
             return
+
         self.progress_bar.setValue(0)
+
+
         try:
-            db_connection = connect_db()
-            if db_connection:
+            #db_connection = connect_db()
+           # if db_connection:
                 # Fetch and display project details
-                project_info = get_project_info(file_path, db_connection)
-                self.display_project_info(project_info)
+            self.progress_bar.setValue(15)
+              #  project_info = get_project_info(file_path, db_connection)
+               # self.display_project_info(project_info)
 
             # Start the worker thread
             self.worker = self.FolderPermissionWorker(file_path)
@@ -477,13 +562,13 @@ class TestGUI(QMainWindow):
         self.progress_bar.setValue(100)
 
     def copy_selected_items(self):
-        """Copy selected QListWidget items to clipboard."""
+
         selected_items = self.project_info_list.selectedItems()
         selected_text = "\n".join(item.text() for item in selected_items)
         QApplication.clipboard().setText(selected_text)
 
     def select_all_items(self):
-        """Select all items in the QListWidget."""
+
         self.project_info_list.selectAll()
 
 
