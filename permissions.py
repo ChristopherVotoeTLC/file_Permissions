@@ -57,7 +57,7 @@ def determine_hierarch(mask):
     return permission
 
 # List the permission for the provided folder path m
-def get_folder_permission(file_path):
+def get_all_principal_permission(file_path):
     try:
         security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
         dacl = security_reader.GetSecurityDescriptorDacl()
@@ -207,11 +207,27 @@ def get_principal_type(sid):
 
 
 def get_all_folder_permission(root_path):
+    """
+    Retrieve permissions for all folders under a given root directory.
+
+    This function traverses through all directories under the specified
+    root path and retrieves their associated permissions. It constructs
+    a relative path for each directory and maps it to its permissions
+    in the returned dictionary. If an error occurs while processing a
+    directory, the error will be printed and processing will continue
+    with the next directory.
+
+    :param root_path: The root directory path to start recursively gathering
+        folder permissions.
+    :return: A dictionary where each key is a relative path (as a string)
+        of a folder under the root directory and the corresponding value
+        is its permissions.
+    """
     folder_permission = {}
 
-    for dirpath, dirnames, _ in os.walk(root_path, topdown=True):
+    for dirpath, dirname, folder in os.walk(root_path, topdown=True):
         try:
-            permissions = get_folder_permission(dirpath)
+            permissions = get_all_principal_permission(dirpath)
             relative_path = path.Path(dirpath).relative_to(root_path)
             folder_permission[str(relative_path)] = permissions
 
@@ -221,7 +237,7 @@ def get_all_folder_permission(root_path):
     return folder_permission
 
 # Prints name, permission and inheritance
-def print_all_folder_permission(root_path, progress_callback=None):
+def print_all_principal_permission(root_path, progress_callback=None):
     start = time.time()
     folder_permission_data = get_all_folder_permission(root_path)
 
@@ -242,7 +258,7 @@ def print_all_folder_permission(root_path, progress_callback=None):
         f.write(f"Below are all permission for all folders in: {root_path}\n")
         f.write("-" * 173 + "\n")
 
-        root_permissions = get_folder_permission(root_path)
+        root_permissions = get_all_principal_permission(root_path)
         f.write(f"\nRoot Folder: {root_path}\n")
         f.write("-" * 173 + "\n")
         f.write(f"{'User/Group':40} {'Permission':25} {'Source'}\n")
@@ -436,5 +452,26 @@ def print_all_groups_permission(root_path, progress_callback=None):
 
     return total_time, report_filename
 
+def store_all_principal_permission_as_dict(root_path):
 
+    folder_permissions = {}
+
+    # Traverse the tree 
+    for dirpath, principle, permission in os.walk(root_path, topdown=True):
+        try:
+            # Get permissions for the current folder
+            permissions = get_all_principal_permission(dirpath)
+
+            relative_path = path.Path(dirpath).relative_to(root_path)
+
+            # Add permissions to the dictionary
+            folder_permissions[str(relative_path)] = permissions
+
+        except Exception as e:
+
+            folder_permissions[str(path.Path(dirpath).relative_to(root_path))] = [
+                ("Error", str(e), "None")
+            ]
+
+    return folder_permissions
 

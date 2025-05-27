@@ -1,15 +1,15 @@
 
 
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QLabel, QListWidget, QProgressBar, QFileDialog,
-    QLineEdit, QShortcut, QPushButton, QCheckBox, QApplication, QHBoxLayout
+    QLineEdit, QShortcut, QPushButton, QCheckBox, QApplication, QHBoxLayout, QTreeWidget, QTreeWidgetItem
 )
 import qtawesome as qta
 import os
 from permissions import (
-    print_all_folder_permission, print_all_user_permission, print_all_groups_permission
+    print_all_principal_permission, print_all_user_permission, print_all_groups_permission, store_all_principal_permission_as_dict
 )
 
 
@@ -40,7 +40,7 @@ class TestGUI(QMainWindow):
                     self.root_path, progress_callback
                 )
             else:  # Default to all_permissions
-                total_time, report_file = print_all_folder_permission(
+                total_time, report_file =  print_all_principal_permission(
                     self.root_path, progress_callback
                 )
 
@@ -55,7 +55,9 @@ class TestGUI(QMainWindow):
     def start_gui(self):
         # Set up a window
         self.setWindowTitle("Folder Permissions GUI")
-        self.setGeometry(100, 100, 700, 500)
+        #Adds the fullscreen/minimize/close in the top left of the gui
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
+        self.setGeometry(100,100,1100,900)
 
 
         # Syling!!
@@ -159,6 +161,31 @@ class TestGUI(QMainWindow):
         background-color: #2c3e50;
         color: white;
     }
+    
+    QTreeWidget {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        color: #000000; /*Input field text color*/
+        padding: 5px;
+        font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        font-size: 15px; 
+    }
+    QHeaderView {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        color: #000000; /*Input field text color*/
+        font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        font-size: 15px; 
+    }
+    QHeaderView::section {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        border: 1px solid #4ca1af;  
+        padding: 2px;
+    }
+    QScrollBar:vertical {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        border: none;
+    }
 """)
 
         # Central widget and layout
@@ -218,7 +245,13 @@ class TestGUI(QMainWindow):
         select_all_shortcut = QShortcut(QKeySequence("Ctrl+A"), self)
         select_all_shortcut.activated.connect(self.select_all_items)
 
-
+        # Tree widget for displaying folder structure and permissions
+        self.tree_widget = QTreeWidget()
+        self.tree_widget.setHeaderLabels(["Folder","Permissions", "Inheritance"])
+        self.tree_widget.setColumnWidth(0, 650)
+        self.tree_widget.setColumnWidth(1, 200)
+        self.tree_widget.setColumnWidth(2, 100)
+        layout.addWidget(self.tree_widget)
 
         # Label with file location
         self.file_location_label = QLabel("File Location:")
@@ -229,6 +262,38 @@ class TestGUI(QMainWindow):
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0) # maybe get rid of
         layout.addWidget(self.progress_bar)
+
+
+    def fill_tree(self,root_path):
+        """
+        Populates a QTreeWidget with a hierarchical structure representing folder permissions.
+
+        This method clears the existing contents of the tree widget and populates it using
+        the folder and their associated permissions data. It processes each folder and its
+        permissions to create a visually hierarchical representation where folders and their
+        respective permissions are displayed as tree nodes.
+
+        :param root_path: The root directory path from which the folder permissions will
+            be retrieved.
+        :type root_path: str
+        :return: None
+        """
+        self.tree_widget.clear()
+
+        folder_permissions = store_all_principal_permission_as_dict(root_path)
+
+        for folder, permissions in folder_permissions.items():
+            # Add top-level item
+            folder_item = QTreeWidgetItem([folder, "Folder"])
+
+            # Add each permission as a child item
+            for user, perm, source in permissions:
+                permission_item = QTreeWidgetItem(
+                    [f"User/Group: {user}", f"{perm}", f"{source}"])
+                folder_item.addChild(permission_item)
+
+            # Add the folder to the tree widget
+            self.tree_widget.addTopLevelItem(folder_item)
 
     # Used to open a folder directory when browse is clicked
     def browse_folder(self):
@@ -242,9 +307,6 @@ class TestGUI(QMainWindow):
             self.show_error_message("Invalid folder path.")
             return
 
-        # self.progress_bar.setValue(0)
-
-
         try:
             include_groups = self.show_groups_checkbox.isChecked()
             include_users = self.show_users_checkbox.isChecked()
@@ -255,6 +317,10 @@ class TestGUI(QMainWindow):
             self.progress_bar.setValue(15)
             # project_info = get_project_info(file_path, db_connection)
             # self.display_project_info(project_info)
+
+            self.fill_tree(file_path)
+
+
             if include_users and not include_groups:
                 self.worker = self.FolderPermissionWorker(file_path, method = "users_only")
                 print("Only users")
@@ -311,4 +377,3 @@ class TestGUI(QMainWindow):
     def select_all_items(self):
 
         self.project_info_list.selectAll()
-
