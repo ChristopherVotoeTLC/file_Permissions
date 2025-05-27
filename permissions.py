@@ -475,3 +475,29 @@ def store_all_principal_permission_as_dict(root_path):
 
     return folder_permissions
 
+def store_user_permissions_only_as_dict(root_path):
+    folder_permissions = {}
+    for dirpath, principle, permission in os.walk(root_path, topdown=True):
+        try:
+            permissions = get_user_permissions_only(dirpath)
+            relative_path = path.Path(dirpath).relative_to(root_path)
+            folder_permissions[str(relative_path)] = permissions
+        except Exception as e:
+            folder_permissions[str(path.Path(dirpath).relative_to(root_path))] = [
+                ("Error", str(e), "None")
+            ]
+    return folder_permissions
+
+def store_group_permissions_only_as_dict(root_path):
+    folder_permissions = {}
+    for dirpath, principle, permission in os.walk(root_path, topdown=True):
+        try:
+            permissions = get_group_permissions_only(dirpath)
+            relative_path = path.Path(dirpath).relative_to(root_path)
+            folder_permissions[str(relative_path)] = permissions
+        except Exception as e:
+            folder_permissions[str(path.Path(dirpath).relative_to(root_path))] = [
+                ("Error", str(e), "None")
+            ]
+    return folder_permissions
+

@@ -9,7 +9,8 @@ from PyQt5.QtWidgets import (
 import qtawesome as qta
 import os
 from permissions import (
-    print_all_principal_permission, print_all_user_permission, print_all_groups_permission, store_all_principal_permission_as_dict
+    print_all_principal_permission, print_all_user_permission, print_all_groups_permission,
+    store_all_principal_permission_as_dict, store_user_permissions_only_as_dict, store_group_permissions_only_as_dict
 )
 
 
@@ -265,22 +266,16 @@ class TestGUI(QMainWindow):
 
 
     def fill_tree(self,root_path):
-        """
-        Populates a QTreeWidget with a hierarchical structure representing folder permissions.
 
-        This method clears the existing contents of the tree widget and populates it using
-        the folder and their associated permissions data. It processes each folder and its
-        permissions to create a visually hierarchical representation where folders and their
-        respective permissions are displayed as tree nodes.
-
-        :param root_path: The root directory path from which the folder permissions will
-            be retrieved.
-        :type root_path: str
-        :return: None
-        """
         self.tree_widget.clear()
 
-        folder_permissions = store_all_principal_permission_as_dict(root_path)
+        if self.show_users_checkbox.isChecked() and not self.show_groups_checkbox.isChecked():
+            folder_permissions = store_user_permissions_only_as_dict(root_path)
+        elif self.show_groups_checkbox.isChecked() and not self.show_users_checkbox.isChecked():
+            folder_permissions = store_group_permissions_only_as_dict(root_path)
+        else:
+            folder_permissions = store_all_principal_permission_as_dict(root_path)
+
 
         for folder, permissions in folder_permissions.items():
             # Add top-level item
