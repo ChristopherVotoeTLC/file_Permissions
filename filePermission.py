@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
 import qtawesome as qta
 import sys
 import win32security
-import win32con
+
 import os
 import ntsecuritycon as nt
 import pathlib as path
@@ -159,6 +159,7 @@ def get_folder_permission(file_path):
     except Exception as e:
         return [("Error", str(e), "")]
 
+#List the permission for the provided folder path and user
 def get_user_permissions_only(file_path):
     try:
         # Retrieve the security descriptor for the given file
@@ -205,6 +206,55 @@ def get_user_permissions_only(file_path):
     except Exception as e:
         return [("Error", str(e), "")]
 
+#List the permission for the provided folder path and group
+def get_group_permissions_only(file_path):
+    try:
+        # Retrieve the security descriptor for the given file
+        security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+        dacl = security_reader.GetSecurityDescriptorDacl()
+
+        if dacl is None:
+            return [("Error", "No DACL found", "")]
+
+        group_permissions = []
+
+        # Loop through all Access Control Entries (ACE)
+        for i in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(i)
+            ace_flags = ace[0][1]
+            mask = ace[1]
+            sid = ace[2]
+
+            # Check only for "Group" principals
+            principal_type = get_principal_type(sid)
+            if principal_type == "Group":  # Only process Groups
+                try:
+                    # Retrieve DOMAIN\USERNAME from SID
+                    user, domain, _ = win32security.LookupAccountSid(None, sid)
+                    account = f"{domain}\\{user}"
+                except win32security.error:
+                    account = f"Unknown SID: {sid}"
+
+                # Determine categorized permissions based on mask
+                perms = determine_hierarch(mask)
+                permission = "".join(perms)
+
+                # Check for inheritance flags
+                if ace_flags & win32security.INHERITED_ACE:
+                    source = "Inherited from above"
+                else:
+                    source = "None"
+
+                # Append to user-specific permission results
+                group_permissions.append((account, permission, source))
+
+        return group_permissions
+
+    except Exception as e:
+        return [("Error", str(e), "")]
+
+
+#Decides if a user or a group
 def get_principal_type(sid):
     try:
         _, _, account_type = win32security.LookupAccountSid(None, sid)
@@ -217,7 +267,6 @@ def get_principal_type(sid):
         return "Other"
     except win32security.error:
         return "Unknown"
-
 
 def get_all_folder_permission(root_path):
     folder_permission = {}
@@ -251,7 +300,7 @@ def print_all_folder_permission(root_path, progress_callback =None):
     if progress_callback:
         progress_callback(0, num_folders)
     i = 0
-
+    #if not self.inheritance_checkbox.isChecked():
     with open(report_filename, 'w') as f:
         f.write(f"Below are all permission for all folders in: {root_path}\n")
         f.write("-" * 173 + "\n")
@@ -279,6 +328,9 @@ def print_all_folder_permission(root_path, progress_callback =None):
                 f.write("-" * 173 + "\n")
         except Exception as e:
             print(f"An error occurred: {e}")
+    #else:
+       #print("This is the inheritance report")
+        #Future inheritance method
 
 
     if progress_callback:
@@ -296,14 +348,168 @@ def print_all_folder_permission(root_path, progress_callback =None):
 
     return total_time, report_filename
 
+#print name, permission, and inheritance for users principal only
+def print_all_user_permission(root_path, progress_callback=None):
+    start = time.time()
+
+    folder_permission_data = {}
+
+    try:
+        # Walk through all folders and subfolders
+        for dirpath, _, _ in os.walk(root_path):
+
+            permissions = get_user_permissions_only(dirpath)
+            folder_permission_data[os.path.relpath(dirpath, root_path)] = permissions
+
+    except Exception as e:
+        print(f"Error while gathering permissions: {e}")
+        return None
+
+    # Save the report to the Downloads folder
+    try:
+        downloads_dir = os.path.join(os.getenv("USERPROFILE") or os.getenv("HOME"), "Downloads")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        report_filename = os.path.join(downloads_dir, f"permissions_report_users_{timestamp}.txt")
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
+    num_folders = len(folder_permission_data)
+    if progress_callback:
+        progress_callback(0, num_folders)
+
+    i = 0
+    # Write the report to a file
+    with open(report_filename, 'w') as f:
+        f.write(f"Below are all user-specific permissions for all folders in: {root_path}\n")
+        f.write("-" * 173 + "\n")
+
+        root_permissions = get_user_permissions_only(root_path)
+        f.write(f"\nRoot Folder: {root_path}\n")
+        f.write("-" * 173 + "\n")
+        f.write(f"{'User':40} {'Permission':25} {'Source'}\n")
+        f.write("-" * 173 + "\n")
+
+        try:
+            for user, perm, src in root_permissions:
+                i += 1
+                f.write(f"{user:40} {perm:25} {src}\n")
+            f.write("-" * 173 + "\n")
+            
+            for folder_path, permissions in folder_permission_data.items():
+                f.write(f"\nSubfolder: {root_path}\\{folder_path}\n")
+                f.write("-" * 173 + "\n")
+                f.write(f"{'User':40} {'Permission':25} {'Source'}\n")
+                f.write("-" * 173 + "\n")
+
+                for user, perm, src in permissions:
+                    i += 1
+                    f.write(f"{user:40} {perm:25} {src}\n")
+                f.write("-" * 173 + "\n")
+        
+        except Exception as e:
+            print(f"An error occurred while writing to the report: {e}")
+
+    if progress_callback:
+        progress_callback(i, num_folders)
+
+    end = time.time()
+    total_time = end - start
+    print(f"Results have been written to {report_filename}")
+
+    # Open the report file
+    try:
+        os.startfile(report_filename)
+    except Exception as e:
+        print(f"Error opening the report: {e}")
+
+    return total_time, report_filename
+
+def print_all_groups_permission(root_path, progress_callback=None):
+    start = time.time()
+
+    folder_permission_data = {}
+
+    try:
+        # Walk through all folders and subfolders
+        for dirpath, _, _ in os.walk(root_path):
+            permissions = get_group_permissions_only(dirpath)
+            folder_permission_data[os.path.relpath(dirpath, root_path)] = permissions
+
+    except Exception as e:
+        print(f"Error while gathering permissions: {e}")
+        return None
+
+    # Save the report to the Downloads folder
+    try:
+        downloads_dir = os.path.join(os.getenv("USERPROFILE") or os.getenv("HOME"), "Downloads")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        report_filename = os.path.join(downloads_dir, f"permissions_report_users_{timestamp}.txt")
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
+    num_folders = len(folder_permission_data)
+    if progress_callback:
+        progress_callback(0, num_folders)
+
+    i = 0
+    # Write the report to a file
+    with open(report_filename, 'w') as f:
+        f.write(f"Below are all group-specific permissions for all folders in: {root_path}\n")
+        f.write("-" * 173 + "\n")
+
+        root_permissions = get_group_permissions_only(root_path)
+        f.write(f"\nRoot Folder: {root_path}\n")
+        f.write("-" * 173 + "\n")
+        f.write(f"{'Group':40} {'Permission':25} {'Source'}\n")
+        f.write("-" * 173 + "\n")
+
+        try:
+            for group, perm, src in root_permissions:
+                i += 1
+                f.write(f"{group:40} {perm:25} {src}\n")
+            f.write("-" * 173 + "\n")
+
+            for folder_path, permissions in folder_permission_data.items():
+                f.write(f"\nSubfolder: {root_path}\\{folder_path}\n")
+                f.write("-" * 173 + "\n")
+                f.write(f"{'Group':40} {'Permission':25} {'Source'}\n")
+                f.write("-" * 173 + "\n")
+
+                for group, perm, src in permissions:
+                    i += 1
+                    f.write(f"{group:40} {perm:25} {src}\n")
+                f.write("-" * 173 + "\n")
+
+        except Exception as e:
+            print(f"An error occurred while writing to the report: {e}")
+
+    if progress_callback:
+        progress_callback(i, num_folders)
+
+    end = time.time()
+    total_time = end - start
+    print(f"Results have been written to {report_filename}")
+
+    # Open the report file
+    try:
+        os.startfile(report_filename)
+    except Exception as e:
+        print(f"Error opening the report: {e}")
+
+    return total_time, report_filename
+
+
 class TestGUI(QMainWindow):
     class FolderPermissionWorker(QThread):
         progress_update = pyqtSignal(int)  # Signal for reporting progress
         task_completed = pyqtSignal(float, str)  # Signal for task completion (total time and report file)
 
-        def __init__(self, root_path):
+        def __init__(self, root_path, method = "all"):
             super().__init__()
             self.root_path = root_path  # The root path for processing
+            self.method = method
 
         def run(self):
             def progress_callback(current, total):
@@ -312,8 +518,19 @@ class TestGUI(QMainWindow):
                     progress_percentage = int((current / total) * 100)
                     self.progress_update.emit(progress_percentage)
 
-            # Call the function and process the folders
-            total_time, report_file = print_all_folder_permission(self.root_path, progress_callback)
+            # Decide which function to call based on the method type
+            if self.method == "users_only":
+                total_time, report_file = print_all_user_permission(
+                    self.root_path, progress_callback
+                )
+            elif self.method == "groups_only":
+                total_time, report_file = print_all_groups_permission(
+                    self.root_path, progress_callback
+                )
+            else:  # Default to all_permissions
+                total_time, report_file = print_all_folder_permission(
+                    self.root_path, progress_callback
+                )
 
             # Emit the signal for task completion when done
             self.task_completed.emit(total_time, report_file)
@@ -462,17 +679,17 @@ class TestGUI(QMainWindow):
         self.horizontal_layout.addWidget(submit_button)
 
         #Inheritance Checkbox
-        inheritance_checkbox = QCheckBox("Include Inherited Permissions (Will take longer to compute)")
-        inheritance_checkbox.setChecked(False)
-        layout.addWidget(inheritance_checkbox)
+        self.inheritance_checkbox = QCheckBox("Include Inherited Permissions (Will take longer to compute)")
+        self.inheritance_checkbox.setChecked(False)
+        layout.addWidget(self.inheritance_checkbox)
 
-        show_groups_checkbox = QCheckBox("Include Groups")
-        show_groups_checkbox.setChecked(True)
-        layout.addWidget(show_groups_checkbox)
+        self.show_groups_checkbox = QCheckBox("Include Groups")
+        self.show_groups_checkbox.setChecked(True)
+        layout.addWidget( self.show_groups_checkbox)
 
-        show_individuals_checkbox = QCheckBox("Include Individuals")
-        show_individuals_checkbox.setChecked(True)
-        layout.addWidget(show_individuals_checkbox)
+        self.show_users_checkbox = QCheckBox("Include Users")
+        self.show_users_checkbox.setChecked(True)
+        layout.addWidget( self.show_users_checkbox)
 
         # Project Details Sections
         project_details_label = QLabel("Project Details: (Ctrl + A to select all & Ctrl + C to copy)")
@@ -513,19 +730,31 @@ class TestGUI(QMainWindow):
             self.show_error_message("Invalid folder path.")
             return
 
-        self.progress_bar.setValue(0)
+        #self.progress_bar.setValue(0)
 
 
         try:
+            include_groups = self.show_groups_checkbox.isChecked()
+            include_users = self.show_users_checkbox.isChecked()
+
             #db_connection = connect_db()
            # if db_connection:
                 # Fetch and display project details
             self.progress_bar.setValue(15)
-              #  project_info = get_project_info(file_path, db_connection)
-               # self.display_project_info(project_info)
+                #project_info = get_project_info(file_path, db_connection)
+                #self.display_project_info(project_info)
+            if include_users and not include_groups:
+                self.worker = self.FolderPermissionWorker(file_path, method = "users_only")
+                print("Only users")
+            elif include_groups and not include_users:
+                self.worker = self.FolderPermissionWorker(file_path, method = "groups_only")
+                print("Only groups")
+            else:
+                self.worker = self.FolderPermissionWorker(file_path, method = "all")
+                print("Both users and groups")
 
             # Start the worker thread
-            self.worker = self.FolderPermissionWorker(file_path)
+
             self.worker.progress_update.connect(self.update_progress_bar)  # Connect progress updates
             self.worker.task_completed.connect(self.task_completed)  # Connect task completion
             self.worker.start()  # Start the worker thread
@@ -534,7 +763,7 @@ class TestGUI(QMainWindow):
             print(F"An error occurred: {e}")
 
     def display_project_info(self, project_info):
-        self.project_info_list.clear() #Clears a listbox before starting
+        self.project_info_list.clear() #Clears listbox before starting
         if not project_info:
             self.project_info_list.addItem("No project found.")
             return
@@ -578,5 +807,3 @@ if __name__ == "__main__":
     test_window = TestGUI()
     test_window.show()
     sys.exit(app.exec())
-
-
