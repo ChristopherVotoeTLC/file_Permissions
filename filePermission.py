@@ -1,8 +1,13 @@
-import tkinter as tk
-from tkinter import ttk
-from tkinter import filedialog
+from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtGui import QKeySequence
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QVBoxLayout, QLineEdit, QPushButton,
+    QLabel, QListWidget, QProgressBar, QWidget, QFileDialog, QShortcut, QHBoxLayout, QCheckBox
+)
+import qtawesome as qta
+import sys
 import win32security
-import win32con
+
 import os
 import ntsecuritycon as nt
 import pathlib as path
@@ -19,6 +24,8 @@ PERMISSION_HIERARCH ={
     "Write": nt.FILE_GENERIC_WRITE,
     "Read": nt.FILE_GENERIC_READ,
 }
+
+
 
 #works
 def connect_db():
@@ -67,7 +74,7 @@ def get_project_info(root_path, db_connection):
         print(f"Error in get_project_info: {e}")
         return None
 
-#Evaluates the mask and determines the permission for each category.
+#Evaluates the mask and determines the permission
 def determine_hierarch(mask):
     #print(f"Debug: Determining permission for mask: {hex(mask)}")
 
@@ -111,7 +118,7 @@ def determine_hierarch(mask):
 
     return permission
 
-#List the permission for the provided folder path
+#List the permission for the provided folder path m
 def get_folder_permission(file_path):
     try:
         security_reader  = win32security.GetFileSecurity(file_path,win32security.DACL_SECURITY_INFORMATION)
@@ -121,7 +128,7 @@ def get_folder_permission(file_path):
 
         security_permission = []
 
-        #Loop through Access Control Entry, -List of who and what they have permissions to.
+        #Loop through Access Control Entry, -List of whom and what they have permissions to.
         for i in range(dacl.GetAceCount()):
             ace       = dacl.GetAce(i)
             ace_flags = ace[0][1]
@@ -152,6 +159,115 @@ def get_folder_permission(file_path):
     except Exception as e:
         return [("Error", str(e), "")]
 
+#List the permission for the provided folder path and user
+def get_user_permissions_only(file_path):
+    try:
+        # Retrieve the security descriptor for the given file
+        security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+        dacl = security_reader.GetSecurityDescriptorDacl()
+
+        if dacl is None:
+            return [("Error", "No DACL found", "")]
+
+        user_permissions = []
+
+        # Loop through all Access Control Entries (ACE)
+        for i in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(i)
+            ace_flags = ace[0][1]
+            mask = ace[1]  # Access mask (permissions)
+            sid = ace[2]  # Security Identifier (SID)
+
+            # Check only for "User" principals
+            principal_type = get_principal_type(sid)
+            if principal_type == "User":  # Only process users
+                try:
+                    # Retrieve DOMAIN\USERNAME from SID
+                    user, domain, _ = win32security.LookupAccountSid(None, sid)
+                    account = f"{domain}\\{user}"
+                except win32security.error:
+                    account = f"Unknown SID: {sid}"
+
+                # Determine categorized permissions based on mask
+                perms = determine_hierarch(mask)
+                permission = "".join(perms)
+
+                # Check for inheritance flags
+                if ace_flags & win32security.INHERITED_ACE:
+                    source = "Inherited from above"
+                else:
+                    source = "None"
+
+                # Append to user-specific permission results
+                user_permissions.append((account, permission, source))
+
+        return user_permissions
+
+    except Exception as e:
+        return [("Error", str(e), "")]
+
+#List the permission for the provided folder path and group
+def get_group_permissions_only(file_path):
+    try:
+        # Retrieve the security descriptor for the given file
+        security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+        dacl = security_reader.GetSecurityDescriptorDacl()
+
+        if dacl is None:
+            return [("Error", "No DACL found", "")]
+
+        group_permissions = []
+
+        # Loop through all Access Control Entries (ACE)
+        for i in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(i)
+            ace_flags = ace[0][1]
+            mask = ace[1]
+            sid = ace[2]
+
+            # Check only for "Group" principals
+            principal_type = get_principal_type(sid)
+            if principal_type == "Group":  # Only process Groups
+                try:
+                    # Retrieve DOMAIN\USERNAME from SID
+                    user, domain, _ = win32security.LookupAccountSid(None, sid)
+                    account = f"{domain}\\{user}"
+                except win32security.error:
+                    account = f"Unknown SID: {sid}"
+
+                # Determine categorized permissions based on mask
+                perms = determine_hierarch(mask)
+                permission = "".join(perms)
+
+                # Check for inheritance flags
+                if ace_flags & win32security.INHERITED_ACE:
+                    source = "Inherited from above"
+                else:
+                    source = "None"
+
+                # Append to user-specific permission results
+                group_permissions.append((account, permission, source))
+
+        return group_permissions
+
+    except Exception as e:
+        return [("Error", str(e), "")]
+
+
+#Decides if a user or a group
+def get_principal_type(sid):
+    try:
+        _, _, account_type = win32security.LookupAccountSid(None, sid)
+        if account_type == win32security.SidTypeUser:
+            return "User"
+        elif account_type == win32security.SidTypeGroup:
+            return "Group"
+        elif account_type == win32security.SidTypeWellKnownGroup:
+            return "Well-Known Group"
+        return "Other"
+    except win32security.error:
+        return "Unknown"
+
 def get_all_folder_permission(root_path):
     folder_permission = {}
 
@@ -179,6 +295,12 @@ def print_all_folder_permission(root_path, progress_callback =None):
     except Exception as e:
         print(f"Error: {e}")
 
+
+    num_folders = len(folder_permission_data)
+    if progress_callback:
+        progress_callback(0, num_folders)
+    i = 0
+    #if not self.inheritance_checkbox.isChecked():
     with open(report_filename, 'w') as f:
         f.write(f"Below are all permission for all folders in: {root_path}\n")
         f.write("-" * 173 + "\n")
@@ -191,15 +313,11 @@ def print_all_folder_permission(root_path, progress_callback =None):
 
         try:
             for user, perm, src in root_permissions:
+                i+=1
                 f.write(f"{user:40} {perm:25} {src}\n")
             f.write("-" * 173 + "\n")
-
-            # Shows the number of folders for progress bar GUI
-            num_folders = len(folder_permission_data)
-            i = 0
-
             for folder_path, permissions in folder_permission_data.items():
-                i += 1
+
                 f.write(f"\nSubfolder: {root_path}\\{folder_path}\n")
                 f.write("-" * 173 + "\n")
                 f.write(f"{'User/Group':40} {'Permission':25} {'Source'}\n")
@@ -210,10 +328,13 @@ def print_all_folder_permission(root_path, progress_callback =None):
                 f.write("-" * 173 + "\n")
         except Exception as e:
             print(f"An error occurred: {e}")
+    #else:
+       #print("This is the inheritance report")
+        #Future inheritance method
 
 
     if progress_callback:
-        progress_callback(i + 1, num_folders)
+        progress_callback(i , num_folders)
 
     end = time.time()
     total_time = end - start
@@ -227,136 +348,462 @@ def print_all_folder_permission(root_path, progress_callback =None):
 
     return total_time, report_filename
 
-def GUI():
-    #Updates progress bar
-    def update_progress(current, total):
+#print name, permission, and inheritance for users principal only
+def print_all_user_permission(root_path, progress_callback=None):
+    start = time.time()
 
-        progress_value = int((current / total) * 100)
-        progress_bar['value'] = progress_value
-        root.update_idletasks()
+    folder_permission_data = {}
+
+    try:
+        # Walk through all folders and subfolders
+        for dirpath, _, _ in os.walk(root_path):
+
+            permissions = get_user_permissions_only(dirpath)
+            folder_permission_data[os.path.relpath(dirpath, root_path)] = permissions
+
+    except Exception as e:
+        print(f"Error while gathering permissions: {e}")
+        return None
+
+    # Save the report to the Downloads folder
+    try:
+        downloads_dir = os.path.join(os.getenv("USERPROFILE") or os.getenv("HOME"), "Downloads")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        report_filename = os.path.join(downloads_dir, f"permissions_report_users_{timestamp}.txt")
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
+    num_folders = len(folder_permission_data)
+    if progress_callback:
+        progress_callback(0, num_folders)
+
+    i = 0
+    # Write the report to a file
+    with open(report_filename, 'w') as f:
+        f.write(f"Below are all user-specific permissions for all folders in: {root_path}\n")
+        f.write("-" * 173 + "\n")
+
+        root_permissions = get_user_permissions_only(root_path)
+        f.write(f"\nRoot Folder: {root_path}\n")
+        f.write("-" * 173 + "\n")
+        f.write(f"{'User':40} {'Permission':25} {'Source'}\n")
+        f.write("-" * 173 + "\n")
+
+        try:
+            for user, perm, src in root_permissions:
+                i += 1
+                f.write(f"{user:40} {perm:25} {src}\n")
+            f.write("-" * 173 + "\n")
+            
+            for folder_path, permissions in folder_permission_data.items():
+                f.write(f"\nSubfolder: {root_path}\\{folder_path}\n")
+                f.write("-" * 173 + "\n")
+                f.write(f"{'User':40} {'Permission':25} {'Source'}\n")
+                f.write("-" * 173 + "\n")
+
+                for user, perm, src in permissions:
+                    i += 1
+                    f.write(f"{user:40} {perm:25} {src}\n")
+                f.write("-" * 173 + "\n")
+        
+        except Exception as e:
+            print(f"An error occurred while writing to the report: {e}")
+
+    if progress_callback:
+        progress_callback(i, num_folders)
+
+    end = time.time()
+    total_time = end - start
+    print(f"Results have been written to {report_filename}")
+
+    # Open the report file
+    try:
+        os.startfile(report_filename)
+    except Exception as e:
+        print(f"Error opening the report: {e}")
+
+    return total_time, report_filename
+
+def print_all_groups_permission(root_path, progress_callback=None):
+    start = time.time()
+
+    folder_permission_data = {}
+
+    try:
+        # Walk through all folders and subfolders
+        for dirpath, _, _ in os.walk(root_path):
+            permissions = get_group_permissions_only(dirpath)
+            folder_permission_data[os.path.relpath(dirpath, root_path)] = permissions
+
+    except Exception as e:
+        print(f"Error while gathering permissions: {e}")
+        return None
+
+    # Save the report to the Downloads folder
+    try:
+        downloads_dir = os.path.join(os.getenv("USERPROFILE") or os.getenv("HOME"), "Downloads")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        report_filename = os.path.join(downloads_dir, f"permissions_report_users_{timestamp}.txt")
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
+    num_folders = len(folder_permission_data)
+    if progress_callback:
+        progress_callback(0, num_folders)
+
+    i = 0
+    # Write the report to a file
+    with open(report_filename, 'w') as f:
+        f.write(f"Below are all group-specific permissions for all folders in: {root_path}\n")
+        f.write("-" * 173 + "\n")
+
+        root_permissions = get_group_permissions_only(root_path)
+        f.write(f"\nRoot Folder: {root_path}\n")
+        f.write("-" * 173 + "\n")
+        f.write(f"{'Group':40} {'Permission':25} {'Source'}\n")
+        f.write("-" * 173 + "\n")
+
+        try:
+            for group, perm, src in root_permissions:
+                i += 1
+                f.write(f"{group:40} {perm:25} {src}\n")
+            f.write("-" * 173 + "\n")
+
+            for folder_path, permissions in folder_permission_data.items():
+                f.write(f"\nSubfolder: {root_path}\\{folder_path}\n")
+                f.write("-" * 173 + "\n")
+                f.write(f"{'Group':40} {'Permission':25} {'Source'}\n")
+                f.write("-" * 173 + "\n")
+
+                for group, perm, src in permissions:
+                    i += 1
+                    f.write(f"{group:40} {perm:25} {src}\n")
+                f.write("-" * 173 + "\n")
+
+        except Exception as e:
+            print(f"An error occurred while writing to the report: {e}")
+
+    if progress_callback:
+        progress_callback(i, num_folders)
+
+    end = time.time()
+    total_time = end - start
+    print(f"Results have been written to {report_filename}")
+
+    # Open the report file
+    try:
+        os.startfile(report_filename)
+    except Exception as e:
+        print(f"Error opening the report: {e}")
+
+    return total_time, report_filename
 
 
-    def handle_submit():
-        file_path_value = file_path.get().strip()
+class TestGUI(QMainWindow):
+    class FolderPermissionWorker(QThread):
+        progress_update = pyqtSignal(int)  # Signal for reporting progress
+        task_completed = pyqtSignal(float, str)  # Signal for task completion (total time and report file)
 
-        if os.path.exists(file_path_value):
-            progress_bar['value'] = 0
-            print("Processing...")
+        def __init__(self, root_path, method = "all"):
+            super().__init__()
+            self.root_path = root_path  # The root path for processing
+            self.method = method
 
-            # Disable the submitted/browse button to prevent multiple submissions
-            file_submit_button.config(state=tk.DISABLED)
-            browse_button.config(state=tk.DISABLED)
+        def run(self):
+            def progress_callback(current, total):
+                # Calculate the percentage progress
+                if total > 0:
+                    progress_percentage = int((current / total) * 100)
+                    self.progress_update.emit(progress_percentage)
 
-            for i in range(5):
-                progress_bar.step(10)
-                root.update_idletasks()
-                time.sleep(0.05)
+            # Decide which function to call based on the method type
+            if self.method == "users_only":
+                total_time, report_file = print_all_user_permission(
+                    self.root_path, progress_callback
+                )
+            elif self.method == "groups_only":
+                total_time, report_file = print_all_groups_permission(
+                    self.root_path, progress_callback
+                )
+            else:  # Default to all_permissions
+                total_time, report_file = print_all_folder_permission(
+                    self.root_path, progress_callback
+                )
+
+            # Emit the signal for task completion when done
+            self.task_completed.emit(total_time, report_file)
 
 
-            try:
-                handle_project_info()
-                # Generate folder permissions report
-                total_time, report_filename = print_all_folder_permission(file_path_value, update_progress)
-                # Update the file location label with the generated file's path
-                location_label.config(text=f"File saved at: {report_filename}", foreground="green")
+    def __init__(self):
+        super().__init__()
+        self.start_gui()
 
-                # Open the generated text file
-                os.startfile(report_filename)
-            except Exception as e:
-                location_label.config(text=f"An error occurred: {e}")
-                print(f"Error during file generation or project info retrieval: {e}")
+    def start_gui(self):
+        # Set up a window
+        self.setWindowTitle("Folder Permissions GUI")
+        self.setGeometry(100, 100, 700, 500)
 
-            # Re-enable the submit button
-            file_submit_button.config(state=tk.NORMAL)
-            browse_button.config(state=tk.NORMAL)
-        else:
-            location_label.config(text="Error: Invalid folder path!")
-            print("Error: Path does not exist.")
 
-    #Lets user browse for folder along with pasting the path
-    def allow_folder_browse():
-        sel_direct = filedialog.askdirectory()
-        if sel_direct:
-            file_path.set(sel_direct)
+        #Syling!!
+        self.setStyleSheet("""
+    /* Main Window */
+    QMainWindow {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        color: #000000;  /* text color */
+        font-family: "Roboto", sans-serif; /* not sure which this affects yet*/
+        font-size: 18px;
+    }
 
-    #Populates the listbox with the project information for the database
-    def handle_project_info():
-        file_path_value = file_path.get().strip()
-        if os.path.exists(file_path_value):
-            # Clear previous entries
-            project_info.delete(0, tk.END)
+    /* Labels for headings*/
+    QLabel {
+        color: #000000;
+        font-size: 18px;
+        font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        padding: 5px;
+    }
 
-            db_connection = connect_db()
-            project_details = get_project_info(file_path_value,db_connection)
-            if project_details:
-                for row in project_details:
-                    project_info.insert(tk.END, f"Project Number: {row[0]}")
-                    project_info.insert(tk.END, f"Project Name: {row[1]}")
-                    project_info.insert(tk.END, f"Project Manager: {row[2]}")
-                    project_info.insert(tk.END, f"OU: {row[3]}")
-                    project_info.insert(tk.END, f"OU Project Admin: {row[4]}")
+    /* Input fields (QLineEdit) */
+    QLineEdit {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        color: #00000; /*TEXT COLOR*/
+        font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        font-size : 15px;
+        border: 1px solid #2c3e50;
+        border-radius: 8px;
+        padding: 5px;
+    }
+    QLineEdit:focus {
+        border: 1px solid #3498db;  /* Focus color */
+    }
+
+    /* Buttons (QPushButton) */
+    QPushButton {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        color: black;
+        font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        font-size : 15px;
+        border: 1px solid #2c3e50;
+        border-radius: 10px;
+        padding: 7px 15px;
+        
+    }
+    QPushButton:hover {
+        background-color: #2980b9;  /* Hover effect */
+    }
+    QPushButton:pressed {
+        background-color: #1c598b;  /* Pressed effect */
+    }
+    
+    /*Checkbox*/
+    QCheckBox {
+    font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        font-size : 15px;
+    }
+
+    /* Progress Bar */
+    QProgressBar {
+        text-align: center;
+        color: black; /*text*/
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        border: 1px solid #2c3e50;
+        border-radius: 5px;
+    }
+    QProgressBar::chunk {
+        background-color: #39c45f;  /* Fill color */
+        border-radius: 5px;
+    }
+
+    /* List Widget */
+    QListWidget {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        color: #000000; /*Input field text color*/
+        border: 1px solid #2c3e50;
+        border-radius: 5px;
+        padding: 5px;
+        font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        font-size: 15px; /*affects text in list*/
+    }
+    QListWidget::item {
+        padding: 5px;
+        border: none;
+    }
+    QListWidget::item:hover {
+        
+    }
+    QListWidget::item:selected {
+        
+        color: black;
+    }
+
+    /* QFileDialog (Browse File Dialog) */
+    QFileDialog {
+        background-color: #2c3e50;
+        color: white;
+    }
+""")
+
+        # Central widget and layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
+
+        # Folder Path Input
+        folder_path_label = QLabel("Enter Folder Path:")
+        layout.addWidget(folder_path_label)
+
+        # Allows items on the same line
+        self.horizontal_layout = QHBoxLayout()
+        layout.addLayout(self.horizontal_layout)
+
+        #Input line with file path
+        self.file_path_input = QLineEdit()
+        self.horizontal_layout.addWidget(self.file_path_input)
+
+        # Browse Button
+        browse_button = QPushButton("Browse")
+        browse_button.setIcon(qta.icon('fa5s.file-import'))
+        browse_button.clicked.connect(self.browse_folder)
+        self.horizontal_layout.addWidget(browse_button)
+
+        # Submit Button and Progress Bar Layout
+        submit_button = QPushButton("Search")
+        submit_button.setIcon(qta.icon('fa5s.search'))
+        submit_button.clicked.connect(self.handle_submit)
+        self.horizontal_layout.addWidget(submit_button)
+
+        #Inheritance Checkbox
+        self.inheritance_checkbox = QCheckBox("Include Inherited Permissions (Will take longer to compute)")
+        self.inheritance_checkbox.setChecked(False)
+        layout.addWidget(self.inheritance_checkbox)
+
+        self.show_groups_checkbox = QCheckBox("Include Groups")
+        self.show_groups_checkbox.setChecked(True)
+        layout.addWidget( self.show_groups_checkbox)
+
+        self.show_users_checkbox = QCheckBox("Include Users")
+        self.show_users_checkbox.setChecked(True)
+        layout.addWidget( self.show_users_checkbox)
+
+        # Project Details Sections
+        project_details_label = QLabel("Project Details: (Ctrl + A to select all & Ctrl + C to copy)")
+        layout.addWidget(project_details_label)
+
+        self.project_info_list = QListWidget()
+        self.project_info_list.setSelectionMode(QListWidget.ExtendedSelection)
+        layout.addWidget(self.project_info_list)
+
+        # Enable copy and select-all shortcuts
+        copy_shortcut = QShortcut(QKeySequence("Ctrl+C"), self)
+        copy_shortcut.activated.connect(self.copy_selected_items)
+
+        select_all_shortcut = QShortcut(QKeySequence("Ctrl+A"), self)
+        select_all_shortcut.activated.connect(self.select_all_items)
+
+
+
+        #Label with file location
+        self.file_location_label = QLabel("File Location:")
+        layout.addWidget(self.file_location_label)
+        self.file_path = QLineEdit()
+        layout.addWidget(self.file_path)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setValue(0) #maybe get rid of
+        layout.addWidget(self.progress_bar)
+
+    # Used to open a folder directory when browse is clicked
+    def browse_folder(self):
+        selected_folder = QFileDialog.getExistingDirectory(self, "Select Folder")
+        if selected_folder:
+            self.file_path_input.setText(selected_folder)
+
+    def handle_submit(self):
+        file_path = self.file_path_input.text().strip()
+        if not file_path or not os.path.exists(file_path):
+            self.show_error_message("Invalid folder path.")
+            return
+
+        #self.progress_bar.setValue(0)
+
+
+        try:
+            include_groups = self.show_groups_checkbox.isChecked()
+            include_users = self.show_users_checkbox.isChecked()
+
+            #db_connection = connect_db()
+           # if db_connection:
+                # Fetch and display project details
+            self.progress_bar.setValue(15)
+                #project_info = get_project_info(file_path, db_connection)
+                #self.display_project_info(project_info)
+            if include_users and not include_groups:
+                self.worker = self.FolderPermissionWorker(file_path, method = "users_only")
+                print("Only users")
+            elif include_groups and not include_users:
+                self.worker = self.FolderPermissionWorker(file_path, method = "groups_only")
+                print("Only groups")
             else:
-                project_info.insert(tk.END, "No project details found.")
-        else:
-            print("Error: Path does not exist.")
+                self.worker = self.FolderPermissionWorker(file_path, method = "all")
+                print("Both users and groups")
 
-    root = tk.Tk()
-    root.title("Folder Permissions GUI")
-    #Window
-    root.geometry("800x650")
-    #root.configure(background="light gray")
+            # Start the worker thread
 
-    style = ttk.Style()
-    style.configure("BW.TLabel", font=("Arial", 15))
+            self.worker.progress_update.connect(self.update_progress_bar)  # Connect progress updates
+            self.worker.task_completed.connect(self.task_completed)  # Connect task completion
+            self.worker.start()  # Start the worker thread
 
+        except Exception as e:
+            print(F"An error occurred: {e}")
 
-    #Folder Path
-    file_path_label = ttk.Label(root, text="Enter Folder Path:", style="BW.TLabel")
-    file_path_label.pack(pady=10)
+    def display_project_info(self, project_info):
+        self.project_info_list.clear() #Clears listbox before starting
+        if not project_info:
+            self.project_info_list.addItem("No project found.")
+            return
 
-    file_path = tk.StringVar()
-    file_path_entry = ttk.Entry(root, textvariable=file_path, font=("Arial", 15), width=50)
-    file_path_entry.pack(pady=5)
+        for row in project_info:
+            project_number = row[0]
+            project_name = row[1]
+            emp_name = row[2]
+            division_name = row[3]
+            division_admin = row[4]
 
-    # Frame to have buttons on the same line
-    same_line_button_frame = ttk.Frame(root)
-    same_line_button_frame.pack(pady=10)
+        self.project_info_list.addItem(f"Project Number: {project_number}")
+        self.project_info_list.addItem(f"Project Name: {project_name}")
+        self.project_info_list.addItem(f"Employee Name: {emp_name}")
+        self.project_info_list.addItem(f"Division Name: {division_name}")
+        self.project_info_list.addItem(f"Division Admin: {division_admin}")
 
-    #Browse
-    browse_button = ttk.Button(same_line_button_frame, text="Browse", command=allow_folder_browse,)
-    browse_button.pack(side = "left", padx=5)
+    def update_progress_bar(self, value):
 
-    #Submit Button
-    file_submit_button = ttk.Button(same_line_button_frame, text="Submit", command=handle_submit)
-    file_submit_button.pack(side = "left",padx=10)
+        self.progress_bar.setValue(value)
 
+    def task_completed(self, total_time, report_file):
+        self.file_path.setText(report_file)
+        print(f"Task completed in {total_time:.2f} seconds.")
+        self.progress_bar.setValue(100)
 
-    #List of Project Information
-    label = ttk.Label(root, text="Project Details", font=("Arial", 15),style="BW.TLabel")
-    label.pack(pady=10)
-    #handle_project_info()
-    project_info = tk.Listbox(root, font=("Arial", 12), width=60, height=5)
-    project_info.pack(pady=10)
+    def copy_selected_items(self):
 
-    same_line_progress_frame = ttk.Frame(root)
-    same_line_progress_frame.pack(pady=5)
+        selected_items = self.project_info_list.selectedItems()
+        selected_text = "\n".join(item.text() for item in selected_items)
+        QApplication.clipboard().setText(selected_text)
 
-    # Progress Bar and Label
-    progress_label = ttk.Label(same_line_progress_frame, text="Progress:",font = ('Arial', 15))
-    progress_label.pack(side = 'left',padx=10)
-    progress_bar = ttk.Progressbar(same_line_progress_frame, length=300, mode="determinate")
-    progress_bar.pack(padx=10,pady=30)
+    def select_all_items(self):
 
-    # File Location Label
-    location_label_top = ttk.Label(root, text="Location of File Saved:", style="BW.TLabel",wraplength=850)
-    location_label_top.pack(pady=10)
-    location_label = ttk.Label(root, text="....", style="BW.TLabel",wraplength=850)
-    location_label.pack(pady=10)
-
-    root.mainloop()
+        self.project_info_list.selectAll()
 
 
-#RUN THE SCRIPT
+# Run the application
 if __name__ == "__main__":
-    GUI()
-    print("Hello")
+    app = QApplication(sys.argv)
+    test_window = TestGUI()
+    test_window.show()
+    sys.exit(app.exec())
