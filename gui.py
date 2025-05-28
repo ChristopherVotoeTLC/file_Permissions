@@ -16,7 +16,7 @@ from permissions import (
 class TestGUI(QMainWindow):
     class FolderPermissionWorker(QThread):
         progress_update = pyqtSignal(int)  # Signal for reporting progress
-        task_completed = pyqtSignal(float, str)  # Signal for task completion (total time and report file)
+        tree_data_ready = pyqtSignal(dict)  # Signal for task completion (total time and report file)
 
         def __init__(self, root_path, method = "all"):
             super().__init__()
@@ -45,6 +45,19 @@ class TestGUI(QMainWindow):
             # Emit the signal for task completion when done
             #self.task_completed.emit(total_time, report_file)
             # -------------------------------------------------------------------------------------#
+
+            if self.method == "users_only":
+                folder_permissions = store_user_permissions_only_as_dict(self.root_path)
+            elif self.method == "groups_only":
+                folder_permissions = store_group_permissions_only_as_dict(self.root_path)
+            else:  # Default: "all"
+                folder_permissions = store_all_principal_permission_as_dict(self.root_path)
+
+            # Emit progress as complete
+            self.progress_update.emit(100)
+
+            # Send data to the GUI
+            self.tree_data_ready.emit(folder_permissions)
 
     def __init__(self):
         super().__init__()
@@ -272,21 +285,9 @@ class TestGUI(QMainWindow):
         self.progress_bar = QProgressBar()
         layout.addWidget(self.progress_bar)
 
-
-    def fill_tree(self,root_path):
-
+    # Slot to update the tree widget
+    def update_tree_widget(self, folder_permissions):
         self.tree_widget.clear()
-
-        if self.show_users_checkbox.isChecked() and not self.show_groups_checkbox.isChecked():
-            folder_permissions = store_user_permissions_only_as_dict(root_path)
-            self.progress_bar.setValue(100)
-        elif self.show_groups_checkbox.isChecked() and not self.show_users_checkbox.isChecked():
-            folder_permissions = store_group_permissions_only_as_dict(root_path)
-            self.progress_bar.setValue(100)
-        else:
-            folder_permissions = store_all_principal_permission_as_dict(root_path)
-            self.progress_bar.setValue(100)
-
 
         for folder, permissions in folder_permissions.items():
             # Add top-level item
@@ -300,6 +301,9 @@ class TestGUI(QMainWindow):
 
             # Add the folder to the tree widget
             self.tree_widget.addTopLevelItem(folder_item)
+
+
+        self.progress_bar.setValue(100)
 
     # Used to open a folder directory when browse is clicked
     def browse_folder(self):
@@ -324,22 +328,24 @@ class TestGUI(QMainWindow):
             # project_info = get_project_info(file_path_input, db_connection)
             # self.display_project_info(project_info)
 
-            self.fill_tree(file_path_input)
+            #self.fill_tree(file_path_input)
 
             if include_users and not include_groups:
-                self.worker = self.FolderPermissionWorker(file_path_input, method = "users_only")
+                method = "users_only"
                 print("Only users")
             elif include_groups and not include_users:
-                self.worker = self.FolderPermissionWorker(file_path_input, method = "groups_only")
+                method = "groups_only"
                 print("Only groups")
             else:
-                self.worker = self.FolderPermissionWorker(file_path_input, method = "all")
+                method = "all"
                 print("Both users and groups")
 
             # Start the worker thread
-           # self.worker.progress_update.connect(self.update_progress_bar)  # Connect progress updates
-           # self.worker.task_completed.connect(self.task_completed)  # Connect task completion
+            self.worker = self.FolderPermissionWorker(file_path_input,method)
+            self.worker.progress_update.connect(self.update_progress_bar)  # Connect progress updates
+            self.worker.tree_data_ready.connect(self.update_tree_widget)  # Connect tree data
             self.worker.start()  # Start the worker thread
+
 
         except Exception as e:
             print(F"An error occurred: {e}")
@@ -363,14 +369,9 @@ class TestGUI(QMainWindow):
         self.project_info_list.addItem(f"Division Name: {division_name}")
         self.project_info_list.addItem(f"Division Admin: {division_admin}")
 
-    #def update_progress_bar(self, value):
+    def update_progress_bar(self, value):
 
-        #self.progress_bar.setValue(value)
-
-   # def task_completed(self, total_time, report_file):
-        #self.file_path.setText(report_file)
-        #print(f"Task completed in {total_time:.2f} seconds.")
-       # self.progress_bar.setValue(100)
+        self.progress_bar.setValue(value)
 
     def copy_selected_items(self):
 
