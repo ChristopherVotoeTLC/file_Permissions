@@ -240,9 +240,9 @@ class TestGUI(QMainWindow):
         self.horizontal_layout.addWidget(submit_button)
 
         # Inheritance Checkbox
-        self.inheritance_checkbox = QCheckBox("Include Inherited Permissions (Will take longer to compute)")
-        self.inheritance_checkbox.setChecked(False)
-        layout.addWidget(self.inheritance_checkbox)
+        # self.inheritance_checkbox = QCheckBox("Include Inherited Permissions (Will take longer to compute)")
+        # self.inheritance_checkbox.setChecked(False)
+        # layout.addWidget(self.inheritance_checkbox)
 
         self.show_groups_checkbox = QCheckBox("Include Groups")
         self.show_groups_checkbox.setChecked(True)

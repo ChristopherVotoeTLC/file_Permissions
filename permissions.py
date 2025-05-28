@@ -86,9 +86,9 @@ def get_all_principal_permission(file_path):
 
             # Checks inherited or None
             if ace_flags & win32security.INHERITED_ACE:
-                source = "Inherited from above"
+                source = get_inheritance_source(file_path, sid,mask)
             else:
-                source = "None"
+                source = "Set Here"
 
             security_permission.append((account, permission, source))
 
@@ -132,9 +132,9 @@ def get_user_permissions_only(file_path):
 
                 # Check for inheritance flags
                 if ace_flags & win32security.INHERITED_ACE:
-                    source = "Inherited from above"
+                    source = get_inheritance_source(file_path, sid, mask)
                 else:
-                    source = "None"
+                    source = "Set Here"
 
                 # Append to user-specific permission results
                 user_permissions.append((account, permission, source))
@@ -179,9 +179,9 @@ def get_group_permissions_only(file_path):
 
                 # Check for inheritance flags
                 if ace_flags & win32security.INHERITED_ACE:
-                    source = "Inherited from above"
+                    source = get_inheritance_source(file_path, sid, mask)
                 else:
-                    source = "None"
+                    source = "Set Here"
 
                 # Append to user-specific permission results
                 group_permissions.append((account, permission, source))
@@ -500,4 +500,35 @@ def store_group_permissions_only_as_dict(root_path):
                 ("Error", str(e), "None")
             ]
     return folder_permissions
+
+
+def get_inheritance_source(file_path, sid, inherited_mask):
+    parent_path = os.path.dirname(file_path)
+
+    while parent_path:
+        try:
+            security_reader = win32security.GetFileSecurity(parent_path, win32security.DACL_SECURITY_INFORMATION)
+            dacl = security_reader.GetSecurityDescriptorDacl()
+            if dacl:
+                for i in range(dacl.GetAceCount()):
+                    ace = dacl.GetAce(i)
+                    ace_flags = ace[0][1]
+                    mask = ace[1]
+                    sid = ace[2]
+
+                    # Check if the current ACE matches the inherited SID and mask
+                    if sid == sid and mask == inherited_mask and not ace_flags & win32security.INHERITED_ACE:
+                        # If the permission is explicitly set here, return the source folder
+                        return parent_path
+        except Exception as e:
+            print(f"Error while retrieving security for {parent_path}: {e}")
+            return "Unknown"
+
+        above_parent_path = os.path.dirname(parent_path)
+        if above_parent_path == parent_path:
+            break  # Reached the root directory
+        parent_path = above_parent_path
+
+    return "Unknown"
+
 
