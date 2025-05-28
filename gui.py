@@ -168,6 +168,15 @@ class TestGUI(QMainWindow):
         font-family: "Roboto", sans-serif;
         font-size: 15px; 
     }
+    /*Children branches such as each folder*/
+    QTreeWidget::item:!has-children { 
+       
+        color: #00000;
+        font-weight: Normal;
+        font-family: "Roboto", sans-serif;
+        font-size: 15px;              
+    }
+
     QHeaderView {
         background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
         color: #000000; /*Input field text color*/
@@ -179,6 +188,7 @@ class TestGUI(QMainWindow):
         background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
         border: 1px solid #4ca1af;  
         padding: 2px;
+        
     }
     QScrollBar:vertical {
         background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
