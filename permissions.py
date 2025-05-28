@@ -236,7 +236,7 @@ def get_all_folder_permission(root_path):
 
     return folder_permission
 
-# Prints name, permission and inheritance
+# Prints name, permission and inheritance (MIGHT NOT NEED)
 def print_all_principal_permission(root_path, progress_callback=None):
     start = time.time()
     folder_permission_data = get_all_folder_permission(root_path)
@@ -282,7 +282,7 @@ def print_all_principal_permission(root_path, progress_callback=None):
         except Exception as e:
             print(f"An error occurred: {e}")
     # else:
-    # print("This is the inheritance report")
+    #print ("This is the inheritance report")
     # Future inheritance method
 
     if progress_callback:
@@ -300,7 +300,7 @@ def print_all_principal_permission(root_path, progress_callback=None):
 
     return total_time, report_filename
 
-# print name, permission, and inheritance for users principal only
+# print name, permission, and inheritance for users principal only (MIGHT NOT NEED)
 def print_all_user_permission(root_path, progress_callback=None):
     start = time.time()
 
@@ -376,7 +376,7 @@ def print_all_user_permission(root_path, progress_callback=None):
 
     return total_time, report_filename
 
-# print name, permission, and inheritance for group principal only
+# print name, permission, and inheritance for group principal only (MIGHT NOT NEED)
 def print_all_groups_permission(root_path, progress_callback=None):
     start = time.time()
 

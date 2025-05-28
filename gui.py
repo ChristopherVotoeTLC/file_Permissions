@@ -37,10 +37,10 @@ class TestGUI(QMainWindow):
                #     self.root_path, progress_callback)
             #elif self.method == "groups_only":
                 #total_time, report_file = print_all_groups_permission(
-                   # self.root_path, progress_callback )
-            #else:  # Default to all_permissions
-              #  total_time, report_file =  print_all_principal_permission(
-               #     self.root_path, progress_callback )
+                   # self.root_path, progress_callback)
+            #else: # Default to all_permissions
+              #  total_time, report_file = print_all_principal_permission(
+               #     self.root_path, progress_callback)
 
             # Emit the signal for task completion when done
             #self.task_completed.emit(total_time, report_file)
@@ -68,7 +68,7 @@ class TestGUI(QMainWindow):
         self.setWindowTitle("Folder Permissions GUI")
         #Adds the fullscreen/minimize/close in the top left of the gui
         self.setWindowFlags(self.windowFlags() | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
-        self.setGeometry(100,100,1100,900)
+        self.setGeometry(100,100,1250,1100)
 
 
         # Styling!!
@@ -187,7 +187,8 @@ class TestGUI(QMainWindow):
         color: #00000;
         font-weight: Normal;
         font-family: "Roboto", sans-serif;
-        font-size: 15px;              
+        font-size: 15px; 
+                   
     }
 
     QHeaderView {
@@ -274,6 +275,21 @@ class TestGUI(QMainWindow):
         self.tree_widget.setColumnWidth(2, 100)
         layout.addWidget(self.tree_widget)
 
+        search_layout = QHBoxLayout()
+
+        # Search Tree input
+        self.search_tree = QLineEdit()
+        self.search_tree.setPlaceholderText("Enter search term...")
+        search_layout.addWidget(self.search_tree)
+
+        # Search button
+        search_button = QPushButton("Search")
+        search_button.setIcon(qta.icon('fa5s.search'))
+
+        search_button.clicked.connect(self.search_tree_1)
+        search_layout.addWidget(search_button)
+        layout.addLayout(search_layout)
+
         #-----------------------------Got rid of to use only tree widget------------------------#
         #Label with file location
         #self.file_location_label = QLabel("File Location:")
@@ -296,7 +312,7 @@ class TestGUI(QMainWindow):
             # Add each permission as a child item
             for user, perm, source in permissions:
                 permission_item = QTreeWidgetItem(
-                    [f"User/Group: {user}", f"{perm}", f"{source}"])
+                    [f"User/Group: {user}", f"     {perm}", f"{source}"])
                 folder_item.addChild(permission_item)
 
             # Add the folder to the tree widget
@@ -304,6 +320,55 @@ class TestGUI(QMainWindow):
 
 
         self.progress_bar.setValue(100)
+
+    def search_tree_1(self):
+        search_term = self.search_tree.text().strip()
+        if not search_term:
+            self.show_error_message("Please enter a search term.")
+            return
+
+        search_term = search_term.lower()
+
+        self.highlight_searched_item(self.tree_widget, search_term)
+
+    def highlight_searched_item(self,tree_widget,search_term):
+
+        for i in range(tree_widget.topLevelItemCount()):
+            top_item = tree_widget.topLevelItem(i)
+            self.search_item_recursive(top_item, search_term)
+
+    def search_item_recursive(self, item, search_term):
+        # Reset item background color by default
+        item.setBackground(0, Qt.transparent)
+        item.setBackground(1, Qt.transparent)
+        item.setBackground(2, Qt.transparent)
+
+        # Check if any column text contains the search term
+        for col in range(item.columnCount()):
+            if search_term in item.text(col).lower():
+                # Highlight the matching item
+                item.setBackground(col, Qt.yellow)
+
+
+        for i in range(item.childCount()):
+            child = item.child(i)
+            self.search_item_recursive(child, search_term)
+
+    def clear_tree_selection(self):
+        # Iterate over all top-level items
+        for i in range(self.tree_widget.topLevelItemCount()):
+            top_item = self.tree_widget.topLevelItem(i)
+            self.clear_item_recursive(top_item)
+
+    def clear_item_recursive(self, item):
+        # Reset background color for each column
+        for col in range(item.columnCount()):
+            item.setBackground(col, Qt.transparent)
+
+        # Recursively clear background color for all children
+        for i in range(item.childCount()):
+            child = item.child(i)
+            self.clear_item_recursive(child)
 
     # Used to open a folder directory when browse is clicked
     def browse_folder(self):
