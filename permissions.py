@@ -308,7 +308,7 @@ def print_all_user_permission(root_path, progress_callback=None):
 
     try:
         # Walk through all folders and subfolders
-        for dirpath, _, _ in os.walk(root_path):
+        for dirpath, principle, folder in os.walk(root_path):
             permissions = get_user_permissions_only(dirpath)
             folder_permission_data[os.path.relpath(dirpath, root_path)] = permissions
 

@@ -9,7 +9,6 @@ from PyQt5.QtWidgets import (
 import qtawesome as qta
 import os
 from permissions import (
-    print_all_principal_permission, print_all_user_permission, print_all_groups_permission,
     store_all_principal_permission_as_dict, store_user_permissions_only_as_dict, store_group_permissions_only_as_dict
 )
 
@@ -31,23 +30,21 @@ class TestGUI(QMainWindow):
                     progress_percentage = int((current / total) * 100)
                     self.progress_update.emit(progress_percentage)
 
+            # -----------------------------Got rid of to use only tree widget------------------------#
             # Decide which function to call based on the method type
-            if self.method == "users_only":
-                total_time, report_file = print_all_user_permission(
-                    self.root_path, progress_callback
-                )
-            elif self.method == "groups_only":
-                total_time, report_file = print_all_groups_permission(
-                    self.root_path, progress_callback
-                )
-            else:  # Default to all_permissions
-                total_time, report_file =  print_all_principal_permission(
-                    self.root_path, progress_callback
-                )
+            #if self.method == "users_only":
+               # total_time, report_file = print_all_user_permission(
+               #     self.root_path, progress_callback)
+            #elif self.method == "groups_only":
+                #total_time, report_file = print_all_groups_permission(
+                   # self.root_path, progress_callback )
+            #else:  # Default to all_permissions
+              #  total_time, report_file =  print_all_principal_permission(
+               #     self.root_path, progress_callback )
 
             # Emit the signal for task completion when done
-            self.task_completed.emit(total_time, report_file)
-
+            #self.task_completed.emit(total_time, report_file)
+            # -------------------------------------------------------------------------------------#
 
     def __init__(self):
         super().__init__()
@@ -61,7 +58,7 @@ class TestGUI(QMainWindow):
         self.setGeometry(100,100,1100,900)
 
 
-        # Syling!!
+        # Styling!!
         self.setStyleSheet("""
     /* Main Window */
     QMainWindow {
@@ -202,7 +199,7 @@ class TestGUI(QMainWindow):
         self.horizontal_layout = QHBoxLayout()
         layout.addLayout(self.horizontal_layout)
 
-        # Input line with file path
+        # Input line with a file path
         self.file_path_input = QLineEdit()
         self.horizontal_layout.addWidget(self.file_path_input)
 
@@ -254,14 +251,15 @@ class TestGUI(QMainWindow):
         self.tree_widget.setColumnWidth(2, 100)
         layout.addWidget(self.tree_widget)
 
-        # Label with file location
-        self.file_location_label = QLabel("File Location:")
-        layout.addWidget(self.file_location_label)
-        self.file_path = QLineEdit()
-        layout.addWidget(self.file_path)
+        #-----------------------------Got rid of to use only tree widget------------------------#
+        #Label with file location
+        #self.file_location_label = QLabel("File Location:")
+        #layout.addWidget(self.file_location_label)
+        #self.file_path = QLineEdit()
+        #layout.addWidget(self.file_path)
+        # --------------------------------------------------------------------------------------
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setValue(0) # maybe get rid of
         layout.addWidget(self.progress_bar)
 
 
@@ -271,10 +269,13 @@ class TestGUI(QMainWindow):
 
         if self.show_users_checkbox.isChecked() and not self.show_groups_checkbox.isChecked():
             folder_permissions = store_user_permissions_only_as_dict(root_path)
+            self.progress_bar.setValue(100)
         elif self.show_groups_checkbox.isChecked() and not self.show_users_checkbox.isChecked():
             folder_permissions = store_group_permissions_only_as_dict(root_path)
+            self.progress_bar.setValue(100)
         else:
             folder_permissions = store_all_principal_permission_as_dict(root_path)
+            self.progress_bar.setValue(100)
 
 
         for folder, permissions in folder_permissions.items():
@@ -297,8 +298,8 @@ class TestGUI(QMainWindow):
             self.file_path_input.setText(selected_folder)
 
     def handle_submit(self):
-        file_path = self.file_path_input.text().strip()
-        if not file_path or not os.path.exists(file_path):
+        file_path_input = self.file_path_input.text().strip()
+        if not file_path_input or not os.path.exists(file_path_input):
             self.show_error_message("Invalid folder path.")
             return
 
@@ -310,33 +311,31 @@ class TestGUI(QMainWindow):
             # if db_connection:
             # Fetch and display project details
             self.progress_bar.setValue(15)
-            # project_info = get_project_info(file_path, db_connection)
+            # project_info = get_project_info(file_path_input, db_connection)
             # self.display_project_info(project_info)
 
-            self.fill_tree(file_path)
-
+            self.fill_tree(file_path_input)
 
             if include_users and not include_groups:
-                self.worker = self.FolderPermissionWorker(file_path, method = "users_only")
+                self.worker = self.FolderPermissionWorker(file_path_input, method = "users_only")
                 print("Only users")
             elif include_groups and not include_users:
-                self.worker = self.FolderPermissionWorker(file_path, method = "groups_only")
+                self.worker = self.FolderPermissionWorker(file_path_input, method = "groups_only")
                 print("Only groups")
             else:
-                self.worker = self.FolderPermissionWorker(file_path, method = "all")
+                self.worker = self.FolderPermissionWorker(file_path_input, method = "all")
                 print("Both users and groups")
 
             # Start the worker thread
-
-            self.worker.progress_update.connect(self.update_progress_bar)  # Connect progress updates
-            self.worker.task_completed.connect(self.task_completed)  # Connect task completion
+           # self.worker.progress_update.connect(self.update_progress_bar)  # Connect progress updates
+           # self.worker.task_completed.connect(self.task_completed)  # Connect task completion
             self.worker.start()  # Start the worker thread
 
         except Exception as e:
             print(F"An error occurred: {e}")
 
     def display_project_info(self, project_info):
-        self.project_info_list.clear() # Clears listbox before starting
+        self.project_info_list.clear() # Clears the listbox before starting
         if not project_info:
             self.project_info_list.addItem("No project found.")
             return
@@ -354,14 +353,14 @@ class TestGUI(QMainWindow):
         self.project_info_list.addItem(f"Division Name: {division_name}")
         self.project_info_list.addItem(f"Division Admin: {division_admin}")
 
-    def update_progress_bar(self, value):
+    #def update_progress_bar(self, value):
 
-        self.progress_bar.setValue(value)
+        #self.progress_bar.setValue(value)
 
-    def task_completed(self, total_time, report_file):
-        self.file_path.setText(report_file)
-        print(f"Task completed in {total_time:.2f} seconds.")
-        self.progress_bar.setValue(100)
+   # def task_completed(self, total_time, report_file):
+        #self.file_path.setText(report_file)
+        #print(f"Task completed in {total_time:.2f} seconds.")
+       # self.progress_bar.setValue(100)
 
     def copy_selected_items(self):
 
