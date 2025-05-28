@@ -5,7 +5,7 @@ import pathlib as path
 import datetime
 import time
 
-
+# User 1:30        Group 8:30    User/Group  9:30  depending on project, tested on 112002
 
 PERMISSION_HIERARCH ={
     "Full Control": nt.FILE_ALL_ACCESS,
@@ -501,7 +501,6 @@ def store_group_permissions_only_as_dict(root_path):
             ]
     return folder_permissions
 
-
 def get_inheritance_source(file_path, sid, inherited_mask):
     parent_path = os.path.dirname(file_path)
 
@@ -518,7 +517,7 @@ def get_inheritance_source(file_path, sid, inherited_mask):
 
                     # Check if the current ACE matches the inherited SID and mask
                     if sid == sid and mask == inherited_mask and not ace_flags & win32security.INHERITED_ACE:
-                        # If the permission is explicitly set here, return the source folder
+                        # If the permission is  set here, return the source folder
                         return parent_path
         except Exception as e:
             print(f"Error while retrieving security for {parent_path}: {e}")
