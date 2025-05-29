@@ -1,5 +1,3 @@
-
-
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
@@ -68,7 +66,7 @@ class TestGUI(QMainWindow):
         self.setWindowTitle("Folder Permissions GUI")
         #Adds the fullscreen/minimize/close in the top left of the gui
         self.setWindowFlags(self.windowFlags() | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
-        self.setGeometry(100,100,1250,1100)
+        self.setGeometry(100,100,1050,975)
 
 
         # Styling!!
@@ -245,7 +243,7 @@ class TestGUI(QMainWindow):
         # layout.addWidget(self.inheritance_checkbox)
 
         self.show_groups_checkbox = QCheckBox("Include Groups")
-        self.show_groups_checkbox.setChecked(True)
+        self.show_groups_checkbox.setChecked(False)
         layout.addWidget( self.show_groups_checkbox)
 
         self.show_users_checkbox = QCheckBox("Include Users")
@@ -301,22 +299,75 @@ class TestGUI(QMainWindow):
         self.progress_bar = QProgressBar()
         layout.addWidget(self.progress_bar)
 
-    # Slot to update the tree widget
     def update_tree_widget(self, folder_permissions):
         self.tree_widget.clear()
 
+        #Dict to store which folders become children of other folders in the tree
+        tree_data = {}
+
+        # Build the tree_data dictionary
         for folder, permissions in folder_permissions.items():
-            # Add top-level item
-            folder_item = QTreeWidgetItem([folder, "Folder"])
+            parts = folder.split("\\") #splits folder_path
+            first_part = parts[0] #This is the top branch
 
-            # Add each permission as a child item
-            for user, perm, source in permissions:
+            #If it doesn't exist in tree_data, add it
+            if first_part not in tree_data:
+                tree_data[first_part] = {"permissions": [], "subfolders": {}}
+                # Permission holds rules while subfolder hold child branches
+
+
+            current_level = tree_data[first_part]
+            for part in parts[1:]:
+                if part not in current_level["subfolders"]:
+                    current_level["subfolders"][part] = {"permissions": [], "subfolders": {}}
+
+                #moves to branch with subfolder and inserts it
+                current_level = current_level["subfolders"][part]
+
+            #Once all subfolders are done, add the permissions
+            current_level["permissions"].extend(permissions)
+
+
+        def add_items(parent_item, folder_data):
+           #List that will hold all the branches, starts with just parent branch and its data
+            holder_list = [(parent_item, folder_data)]
+
+            while holder_list:
+                current_parent, current_data = holder_list.pop()
+
+                # Iterate through folders at the current branch
+                for folder_name, folder_details in current_data.items():
+                    if folder_name == "permissions":
+                        continue
+
+                    # Create a new tree branch
+                    folder_item = QTreeWidgetItem([folder_name, "Folder"])
+                    current_parent.addChild(folder_item)
+
+                    # Add permissions for this branch
+                    for user1, perm1, source1 in folder_details["permissions"]:
+                        permission_item1 = QTreeWidgetItem(
+                            [f"User/Group: {user1}", f"     {perm1}", f"{source1}"]
+                        )
+                        folder_item.addChild(permission_item1)
+
+                    #Adds the branch to the holde list, if folder has subfolders recall and does everything again
+                    holder_list.append((folder_item, folder_details["subfolders"]))
+
+        # Starts filling the tree widget
+        for top_folder, details in tree_data.items():
+            top_item = QTreeWidgetItem([top_folder, "Folder"])
+            self.tree_widget.addTopLevelItem(top_item)
+
+            # Add permissions for the top-level
+            for user, perm, source in details["permissions"]:
                 permission_item = QTreeWidgetItem(
-                    [f"User/Group: {user}", f"     {perm}", f"{source}"])
-                folder_item.addChild(permission_item)
+                    [f"User/Group: {user}", f"     {perm}", f"{source}"]
+                )
+                top_item.addChild(permission_item)
 
-            # Add the folder to the tree widget
-            self.tree_widget.addTopLevelItem(folder_item)
+            # Add subfolders
+            add_items(top_item, details["subfolders"])
 
 
         self.progress_bar.setValue(100)
@@ -335,9 +386,9 @@ class TestGUI(QMainWindow):
 
         for i in range(tree_widget.topLevelItemCount()):
             top_item = tree_widget.topLevelItem(i)
-            self.search_item_recursive(top_item, search_term)
+            self.search_items(top_item, search_term)
 
-    def search_item_recursive(self, item, search_term):
+    def search_items(self, item, search_term):
         # Reset item background color by default
         item.setBackground(0, Qt.transparent)
         item.setBackground(1, Qt.transparent)
@@ -352,15 +403,15 @@ class TestGUI(QMainWindow):
 
         for i in range(item.childCount()):
             child = item.child(i)
-            self.search_item_recursive(child, search_term)
+            self.search_items(child, search_term)
 
     def clear_tree_selection(self):
         # Iterate over all top-level items
         for i in range(self.tree_widget.topLevelItemCount()):
             top_item = self.tree_widget.topLevelItem(i)
-            self.clear_item_recursive(top_item)
+            self.clear_items(top_item)
 
-    def clear_item_recursive(self, item):
+    def clear_items(self, item):
         # Reset background color for each column
         for col in range(item.columnCount()):
             item.setBackground(col, Qt.transparent)
@@ -368,7 +419,7 @@ class TestGUI(QMainWindow):
         # Recursively clear background color for all children
         for i in range(item.childCount()):
             child = item.child(i)
-            self.clear_item_recursive(child)
+            self.clear_items(child)
 
     # Used to open a folder directory when browse is clicked
     def browse_folder(self):
