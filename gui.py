@@ -347,11 +347,11 @@ class TestGUI(QMainWindow):
                     # Add permissions for this branch
                     for user1, perm1, source1 in folder_details["permissions"]:
                         permission_item1 = QTreeWidgetItem(
-                            [f"User/Group: {user1}", f"     {perm1}", f"{source1}"]
+                            [f"User/Group: {user1}", f"          {perm1}", f"{source1}"]
                         )
                         folder_item.addChild(permission_item1)
 
-                    #Adds the branch to the holde list, if folder has subfolders recall and does everything again
+                    #Adds the branch to the hold list if the folder has subfolders recall and does everything again
                     holder_list.append((folder_item, folder_details["subfolders"]))
 
         # Starts filling the tree widget
