@@ -5,7 +5,7 @@ import pathlib as path
 import datetime
 import time
 
-# User 1:30        Group 8:30    User/Group  9:30  depending on project, tested on 112002
+
 
 PERMISSION_HIERARCH ={
     "Full Control": nt.FILE_ALL_ACCESS,
@@ -90,7 +90,18 @@ def get_all_principal_permission(file_path):
             else:
                 source = "Set Here"
 
-            security_permission.append((account, permission, source))
+            #Checks what the permissions are applied to
+            match ace_flags:
+                case flags if flags & nt.OBJECT_INHERIT_ACE and flags & nt.CONTAINER_INHERIT_ACE:
+                    type_path_permission = "This Folder, Subfolders, and Files"
+                case flags if flags & nt.OBJECT_INHERIT_ACE:
+                    type_path_permission = "This Folder and Files "
+                case flags if flags & nt.CONTAINER_INHERIT_ACE:
+                    type_path_permission = "Subfolders Only"
+                case _ if not ace_flags & (nt.OBJECT_INHERIT_ACE | nt.CONTAINER_INHERIT_ACE):
+                    type_path_permission = "This Folder Only"
+
+            security_permission.append((account, permission, source,type_path_permission))
 
         return security_permission
 
@@ -136,8 +147,18 @@ def get_user_permissions_only(file_path):
                 else:
                     source = "Set Here"
 
+                match ace_flags:
+                    case flags if flags & nt.OBJECT_INHERIT_ACE and flags & nt.CONTAINER_INHERIT_ACE:
+                        type_path_permission = "This Folder, Subfolders, and Files"
+                    case flags if flags & nt.OBJECT_INHERIT_ACE:
+                        type_path_permission ="This Folder and Files "
+                    case flags if flags & nt.CONTAINER_INHERIT_ACE:
+                        type_path_permission ="Subfolders Only"
+                    case _ if not ace_flags & (nt.OBJECT_INHERIT_ACE | nt.CONTAINER_INHERIT_ACE):
+                        type_path_permission ="This Folder Only"
+
                 # Append to user-specific permission results
-                user_permissions.append((account, permission, source))
+                user_permissions.append((account, permission, source, type_path_permission))
 
         return user_permissions
 
@@ -183,8 +204,19 @@ def get_group_permissions_only(file_path):
                 else:
                     source = "Set Here"
 
+                #Shows where the permissions are applied to
+                match ace_flags:
+                    case flags if flags & nt.OBJECT_INHERIT_ACE and flags & nt.CONTAINER_INHERIT_ACE:
+                        type_path_permission = "This Folder, Subfolders, and Files"
+                    case flags if flags & nt.OBJECT_INHERIT_ACE:
+                        type_path_permission = "This Folder and Files "
+                    case flags if flags & nt.CONTAINER_INHERIT_ACE:
+                        type_path_permission = "Subfolders Only"
+                    case _ if not ace_flags & (nt.OBJECT_INHERIT_ACE | nt.CONTAINER_INHERIT_ACE):
+                        type_path_permission = "This Folder Only"
+
                 # Append to user-specific permission results
-                group_permissions.append((account, permission, source))
+                group_permissions.append((account, permission, source,type_path_permission))
 
         return group_permissions
 
@@ -517,7 +549,7 @@ def get_inheritance_source(file_path, sid, inherited_mask):
 
                     # Check if the current ACE matches the inherited SID and mask
                     if sid == sid and mask == inherited_mask and not ace_flags & win32security.INHERITED_ACE:
-                        # If the permission is  set here, return the source folder
+                        # If the permission is set here, return the source folder
                         return parent_path
         except Exception as e:
             print(f"Error while retrieving security for {parent_path}: {e}")

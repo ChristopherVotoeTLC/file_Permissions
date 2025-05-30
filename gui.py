@@ -66,7 +66,7 @@ class TestGUI(QMainWindow):
         self.setWindowTitle("Folder Permissions GUI")
         #Adds the fullscreen/minimize/close in the top left of the gui
         self.setWindowFlags(self.windowFlags() | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
-        self.setGeometry(100,100,1050,975)
+        self.setGeometry(100,100,2000,975)
 
 
         # Styling!!
@@ -267,10 +267,12 @@ class TestGUI(QMainWindow):
 
         # Tree widget for displaying folder structure and permissions
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["Folder","Permissions", "Inheritance"])
+        self.tree_widget.setHeaderLabels(["Folder","User","Permissions", "Inheritance","Type"])
         self.tree_widget.setColumnWidth(0, 650)
-        self.tree_widget.setColumnWidth(1, 200)
-        self.tree_widget.setColumnWidth(2, 100)
+        self.tree_widget.setColumnWidth(1, 300)
+        self.tree_widget.setColumnWidth(2, 300)
+        self.tree_widget.setColumnWidth(3, 200)
+        self.tree_widget.setColumnWidth(4, 200)
         layout.addWidget(self.tree_widget)
 
         search_layout = QHBoxLayout()
@@ -329,7 +331,7 @@ class TestGUI(QMainWindow):
 
 
         def add_items(parent_item, folder_data):
-           #List that will hold all the branches, starts with just parent branch and its data
+           #List that will hold all the branches, starts with just the parent branch and its data
             holder_list = [(parent_item, folder_data)]
 
             while holder_list:
@@ -341,13 +343,13 @@ class TestGUI(QMainWindow):
                         continue
 
                     # Create a new tree branch
-                    folder_item = QTreeWidgetItem([folder_name, "Folder"])
+                    folder_item = QTreeWidgetItem([folder_name, ""])
                     current_parent.addChild(folder_item)
 
                     # Add permissions for this branch
-                    for user1, perm1, source1 in folder_details["permissions"]:
+                    for user1, perm1, source1, type1 in folder_details["permissions"]:
                         permission_item1 = QTreeWidgetItem(
-                            [f"User/Group: {user1}", f"          {perm1}", f"{source1}"]
+                            [f"",f"{user1}", f"     {perm1}", f"{source1}", f"{type1}"]
                         )
                         folder_item.addChild(permission_item1)
 
@@ -356,13 +358,13 @@ class TestGUI(QMainWindow):
 
         # Starts filling the tree widget
         for top_folder, details in tree_data.items():
-            top_item = QTreeWidgetItem([top_folder, "Folder"])
+            top_item = QTreeWidgetItem([top_folder, ""])
             self.tree_widget.addTopLevelItem(top_item)
 
             # Add permissions for the top-level
-            for user, perm, source in details["permissions"]:
+            for user, perm, source, type in details["permissions"]:
                 permission_item = QTreeWidgetItem(
-                    [f"User/Group: {user}", f"     {perm}", f"{source}"]
+                    [f"",f"{user}", f"     {perm}", f"{source}", f"{type}"]
                 )
                 top_item.addChild(permission_item)
 
