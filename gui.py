@@ -268,10 +268,10 @@ class TestGUI(QMainWindow):
         # Tree widget for displaying folder structure and permissions
         self.tree_widget = QTreeWidget()
         self.tree_widget.setHeaderLabels(["Folder","User","Permissions", "Inheritance","Type"])
-        self.tree_widget.setColumnWidth(0, 650)
-        self.tree_widget.setColumnWidth(1, 300)
-        self.tree_widget.setColumnWidth(2, 300)
-        self.tree_widget.setColumnWidth(3, 200)
+        self.tree_widget.setColumnWidth(0, 250)
+        self.tree_widget.setColumnWidth(1, 250)
+        self.tree_widget.setColumnWidth(2, 175)
+        self.tree_widget.setColumnWidth(3, 600)
         self.tree_widget.setColumnWidth(4, 200)
         layout.addWidget(self.tree_widget)
 

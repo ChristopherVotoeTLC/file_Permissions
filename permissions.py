@@ -124,6 +124,7 @@ def get_user_permissions_only(file_path):
         for i in range(dacl.GetAceCount()):
             ace = dacl.GetAce(i)
             ace_flags = ace[0][1]
+            #print(F" {ace_flags}")
             mask = ace[1]  # Access mask (permissions)
             sid = ace[2]  # Security Identifier (SID)
 
