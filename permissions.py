@@ -120,6 +120,9 @@ def get_user_permissions_only(file_path):
 
         user_permissions = []
 
+        # Use a set to track encountered (account, source) pairs
+        encountered_principal_sources = set()
+
         # Loop through all Access Control Entries (ACE)
         for i in range(dacl.GetAceCount()):
             ace = dacl.GetAce(i)
@@ -147,6 +150,13 @@ def get_user_permissions_only(file_path):
                     source = get_inheritance_source(file_path, sid, mask)
                 else:
                     source = "Set Here"
+
+                if (account, source) in encountered_principal_sources:
+                    # Replace the source with "Look above" for duplicate entries
+                    source = "CURRENTLY TESTING THIS"
+                else:
+                    # Add the (account, source) pair to the set
+                    encountered_principal_sources.add((account, source))
 
                 match ace_flags:
                     case flags if flags & nt.OBJECT_INHERIT_ACE and flags & nt.CONTAINER_INHERIT_ACE:
