@@ -64,7 +64,7 @@ class TestGUI(QMainWindow):
     def start_gui(self):
         # Set up a window
         self.setWindowTitle("Folder Permissions GUI")
-        #Adds the fullscreen/minimize/close in the top left of the gui
+        #Adds the fullscreen/minimize/close in the top right of the gui
         self.setWindowFlags(self.windowFlags() | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
         self.setGeometry(100,100,2000,975)
 
