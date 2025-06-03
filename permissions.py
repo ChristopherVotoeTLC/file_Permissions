@@ -216,7 +216,6 @@ def get_group_permissions_only(file_path):
 
     except Exception as e:
         return [("Error", str(e), "")]
-
 # Decides if a user or a group
 def get_principal_type(sid):
     try:
@@ -231,36 +230,35 @@ def get_principal_type(sid):
     except win32security.error:
         return "Unknown"
 
-
-def get_all_folder_permission(root_path):
-    """
-    Retrieve permissions for all folders under a given root directory.
-
-    This function traverses through all directories under the specified
-    root path and retrieves their associated permissions. It constructs
-    a relative path for each directory and maps it to its permissions
-    in the returned dictionary. If an error occurs while processing a
-    directory, the error will be printed and processing will continue
-    with the next directory.
-
-    :param root_path: The root directory path to start recursively gathering
-        folder permissions.
-    :return: A dictionary where each key is a relative path (as a string)
-        of a folder under the root directory and the corresponding value
-        is its permissions.
-    """
-    folder_permission = {}
-
-    for dirpath, dirname, folder in os.walk(root_path, topdown=True):
-        try:
-            permissions = get_all_principal_permission(dirpath)
-            relative_path = path.Path(dirpath).relative_to(root_path)
-            folder_permission[str(relative_path)] = permissions
-
-        except Exception as e:
-            print(f"Error processing {dirpath}: {e}")
-
-    return folder_permission
+# def get_all_folder_permission(root_path):
+#     """
+#     Retrieve permissions for all folders under a given root directory.
+#
+#     This function traverses through all directories under the specified
+#     root path and retrieves their associated permissions. It constructs
+#     a relative path for each directory and maps it to its permissions
+#     in the returned dictionary. If an error occurs while processing a
+#     directory, the error will be printed and processing will continue
+#     with the next directory.
+#
+#     :param root_path: The root directory path to start recursively gathering
+#         folder permissions.
+#     :return: A dictionary where each key is a relative path (as a string)
+#         of a folder under the root directory and the corresponding value
+#         is its permissions.
+#     """
+#     folder_permission = {}
+#
+#     for dirpath, dirname, folder in os.walk(root_path, topdown=True):
+#         try:
+#             permissions = get_all_principal_permission(dirpath)
+#             relative_path = path.Path(dirpath).relative_to(root_path)
+#             folder_permission[str(relative_path)] = permissions
+#
+#         except Exception as e:
+#             print(f"Error processing {dirpath}: {e}")
+#
+#     return folder_permission
 
 def store_all_principal_permission_as_dict(root_path):
 
@@ -287,11 +285,14 @@ def store_all_principal_permission_as_dict(root_path):
 
 def store_user_permissions_only_as_dict(root_path):
     folder_permissions = {}
+    folder_count=0
     for dirpath, principle, permission in os.walk(root_path, topdown=True):
         try:
+            folder_count+=1
             permissions = get_user_permissions_only(dirpath)
             relative_path = path.Path(dirpath).relative_to(root_path)
             folder_permissions[str(relative_path)] = permissions
+            print(f"{folder_count}")
         except Exception as e:
             folder_permissions[str(path.Path(dirpath).relative_to(root_path))] = [
                 ("Error", str(e), "None")
@@ -351,19 +352,6 @@ def check_inheritance_type(ace_flags):
         case _ if not ace_flags & (nt.OBJECT_INHERIT_ACE | nt.CONTAINER_INHERIT_ACE):
             inheritance_type = "This Folder Only"
     return inheritance_type
-
-def preload_security_descriptors(root_path):
-    security_descriptors = {}
-
-    for dirpath, _, _ in os.walk(root_path):
-        try:
-            security_reader = win32security.GetFileSecurity(dirpath, win32security.DACL_SECURITY_INFORMATION)
-            security_descriptors[dirpath] = security_reader
-        except Exception as e:
-            print(f"Error preloading security descriptor for {dirpath}: {e}")
-            security_descriptors[dirpath] = None  # Mark as failed to retrieve
-
-    return security_descriptors
 
 def get_cached_security_descriptor(file_path):
     if file_path in security_descriptor_cache:
