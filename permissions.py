@@ -2,8 +2,6 @@ import os
 import ntsecuritycon as nt
 import win32security
 import pathlib as path
-import datetime
-import time
 
 
 
@@ -66,6 +64,8 @@ def get_all_principal_permission(file_path):
 
         security_permission = []
 
+        encountered_principal_sources = set()
+
         # Loop through Access Control Entry, -List of whom and what they have permissions to.
         for i in range(dacl.GetAceCount()):
             ace = dacl.GetAce(i)
@@ -89,6 +89,11 @@ def get_all_principal_permission(file_path):
                 source = get_inheritance_source(file_path, sid,mask)
             else:
                 source = "Set Here"
+
+            if (account,source) in encountered_principal_sources:
+                source = "SHOULD BE BLANK HERE"
+            else:
+                encountered_principal_sources.add((account,source))
 
             #Checks what the permissions are applied to
             type_path_permission = check_inheritance_type(ace_flags)
@@ -144,8 +149,8 @@ def get_user_permissions_only(file_path):
                     source = "Set Here"
 
                 if (account, source) in encountered_principal_sources:
-                    # Replace the source with "Look above" for duplicate entries
-                    source = "CURRENTLY TESTING THIS"
+
+                    source = " "
                 else:
                     # Add the (account, source) pair to the set
                     encountered_principal_sources.add((account, source))
@@ -336,13 +341,14 @@ def get_inheritance_source(file_path, sid, inherited_mask):
 def check_inheritance_type(ace_flags):
     match ace_flags:
         case flags if flags & nt.OBJECT_INHERIT_ACE and flags & nt.CONTAINER_INHERIT_ACE:
-            type_path_permission = "This Folder, Subfolders, and Files"
+            inheritance_type = "This Folder, Subfolders, and Files"
         case flags if flags & nt.OBJECT_INHERIT_ACE:
-            type_path_permission = "This Folder and Files "
+            inheritance_type = "This Folder and Files "
         case flags if flags & nt.CONTAINER_INHERIT_ACE:
-            type_path_permission = "Subfolders Only"
+            inheritance_type = "Subfolders Only"
         case _ if not ace_flags & (nt.OBJECT_INHERIT_ACE | nt.CONTAINER_INHERIT_ACE):
-            type_path_permission = "This Folder Only"
+            inheritance_type = "This Folder Only"
+    return inheritance_type
 
 
 
