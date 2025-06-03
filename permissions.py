@@ -14,6 +14,8 @@ PERMISSION_HIERARCH ={
 }
 
 
+security_descriptor_cache = {}
+
 # Evaluates the mask and determines the permission
 def determine_hierarch(mask):
     # print(f"Debug: Determining permission for mask: {hex(mask)}")
@@ -109,7 +111,7 @@ def get_all_principal_permission(file_path):
 def get_user_permissions_only(file_path):
     try:
         # Retrieve the security descriptor for the given file
-        security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+        security_reader = get_cached_security_descriptor(file_path)
         dacl = security_reader.GetSecurityDescriptorDacl()
 
         if dacl is None:
@@ -314,7 +316,7 @@ def get_inheritance_source(file_path, sid, inherited_mask):
 
     while parent_path:
         try:
-            security_reader = win32security.GetFileSecurity(parent_path, win32security.DACL_SECURITY_INFORMATION)
+            security_reader = get_cached_security_descriptor(parent_path)
             dacl = security_reader.GetSecurityDescriptorDacl()
             if dacl:
                 for i in range(dacl.GetAceCount()):
@@ -350,5 +352,29 @@ def check_inheritance_type(ace_flags):
             inheritance_type = "This Folder Only"
     return inheritance_type
 
+def preload_security_descriptors(root_path):
+    security_descriptors = {}
+
+    for dirpath, _, _ in os.walk(root_path):
+        try:
+            security_reader = win32security.GetFileSecurity(dirpath, win32security.DACL_SECURITY_INFORMATION)
+            security_descriptors[dirpath] = security_reader
+        except Exception as e:
+            print(f"Error preloading security descriptor for {dirpath}: {e}")
+            security_descriptors[dirpath] = None  # Mark as failed to retrieve
+
+    return security_descriptors
+
+def get_cached_security_descriptor(file_path):
+    if file_path in security_descriptor_cache:
+        return security_descriptor_cache[file_path]
+
+    try:
+        security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+        security_descriptor_cache[file_path] = security_reader
+        return security_reader
+    except Exception as e:
+        print(f"Error retrieving security descriptor for {file_path}: {e}")
+        return None
 
 
