@@ -251,19 +251,19 @@ class TestGUI(QMainWindow):
         layout.addWidget( self.show_users_checkbox)
 
         # Project Details Sections
-        project_details_label = QLabel("Project Details: (Ctrl + A to select all & Ctrl + C to copy)")
-        layout.addWidget(project_details_label)
-
-        self.project_info_list = QListWidget()
-        self.project_info_list.setSelectionMode(QListWidget.ExtendedSelection)
-        layout.addWidget(self.project_info_list)
-
-        # Enable copy and select-all shortcuts
-        copy_shortcut = QShortcut(QKeySequence("Ctrl+C"), self)
-        copy_shortcut.activated.connect(self.copy_selected_items)
-
-        select_all_shortcut = QShortcut(QKeySequence("Ctrl+A"), self)
-        select_all_shortcut.activated.connect(self.select_all_items)
+        # project_details_label = QLabel("Project Details: (Ctrl + A to select all & Ctrl + C to copy)")
+        # layout.addWidget(project_details_label)
+        #
+        # self.project_info_list = QListWidget()
+        # self.project_info_list.setSelectionMode(QListWidget.ExtendedSelection)
+        # layout.addWidget(self.project_info_list)
+        #
+        # # Enable copy and select-all shortcuts
+        # copy_shortcut = QShortcut(QKeySequence("Ctrl+C"), self)
+        # copy_shortcut.activated.connect(self.copy_selected_items)
+        #
+        # select_all_shortcut = QShortcut(QKeySequence("Ctrl+A"), self)
+        # select_all_shortcut.activated.connect(self.select_all_items)
 
         # Tree widget for displaying folder structure and permissions
         self.tree_widget = QTreeWidget()
