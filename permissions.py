@@ -15,6 +15,7 @@ PERMISSION_HIERARCH ={
 
 
 security_descriptor_cache = {}
+sid_cache = []
 
 # Evaluates the mask and determines the permission
 def determine_hierarch(mask):
@@ -59,53 +60,50 @@ def determine_hierarch(mask):
 # List the permission for the provided folder path m
 def get_all_principal_permission(file_path):
     try:
+        print(f"Debug: Processing file: {file_path}")
+
+        # Retrieve the security descriptor and DACL
         security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
         dacl = security_reader.GetSecurityDescriptorDacl()
+
         if dacl is None:
+            print(f"Debug: No DACL found for file: {file_path}")
             return [("Error", "No DACL found", "")]
 
-        security_permission = []
-
+        security_permissions = []
         encountered_principal_sources = set()
 
-        # Loop through Access Control Entry, -List of whom and what they have permissions to.
+        # Loop through all ACEs
+        print(f"Debug: Total ACEs for file: {file_path} = {dacl.GetAceCount()}")
         for i in range(dacl.GetAceCount()):
             ace = dacl.GetAce(i)
             ace_flags = ace[0][1]
-            mask = ace[1]  # Shows if read,write...
-            sid = ace[2]  # User in that row
+            mask = ace[1]
+            sid = ace[2]
 
-            # SID is DOMAIN\User
+            print(f"Debug: ACE #{i + 1} - SID: {sid}, Mask: {mask}, Flags: {ace_flags}")
+
             try:
-                user, domain, _ = win32security.LookupAccountSid(None, sid)
-                account = f"{domain}\\{user}"
-            except win32security.error:
+                account = get_cached_sid(sid)
+                print(f"Debug: Resolved SID to Account for ACE #{i + 1}: {account}")
+            except Exception as e:
+                print(f"Debug: Error resolving SID for ACE #{i + 1}: {sid}, Error: {e}")
                 account = f"Unknown SID: {sid}"
-            # categorize mask
+
+            # Permission hierarchy
             perms = determine_hierarch(mask)
-
-            permission = "".join(perms)
-
-            # Checks inherited or None
-            if ace_flags & win32security.INHERITED_ACE:
-                source = get_inheritance_source(file_path, sid,mask)
-            else:
-                source = "Set Here"
-
-            if (account,source) in encountered_principal_sources:
-                source = "SHOULD BE BLANK HERE"
-            else:
-                encountered_principal_sources.add((account,source))
-
-            #Checks what the permissions are applied to
+            source = "Set Here" if not (ace_flags & win32security.INHERITED_ACE) else get_inheritance_source(file_path,
+                                                                                                             sid, mask)
             type_path_permission = check_inheritance_type(ace_flags)
 
-            security_permission.append((account, permission, source,type_path_permission))
+            security_permissions.append((account, perms, source, type_path_permission))
 
-        return security_permission
+        return security_permissions
 
-    except Exception as e:
-        return [("Error", str(e), "")]
+    except Exception as ex:
+        print(f"Debug: Error retrieving principal permissions for file: {file_path}, Error: {ex}")
+        return [("Error", str(ex), "")]
+
 
 # List the permission for the provided folder path and user
 def get_user_permissions_only(file_path):
@@ -132,11 +130,10 @@ def get_user_permissions_only(file_path):
 
             # Check only for "User" principals
             principal_type = get_principal_type(sid)
+
             if principal_type == "User":  # Only process users
                 try:
-                    # Retrieve DOMAIN\USERNAME from SID
-                    user, domain, _ = win32security.LookupAccountSid(None, sid)
-                    account = f"{domain}\\{user}"
+                    account = get_cached_sid(sid)
                 except win32security.error:
                     account = f"Unknown SID: {sid}"
 
@@ -191,8 +188,7 @@ def get_group_permissions_only(file_path):
             if principal_type == "Group":  # Only process Groups
                 try:
                     # Retrieve DOMAIN\USERNAME from SID
-                    user, domain, _ = win32security.LookupAccountSid(None, sid)
-                    account = f"{domain}\\{user}"
+                    account=get_cached_sid(sid)
                 except win32security.error:
                     account = f"Unknown SID: {sid}"
 
@@ -364,5 +360,37 @@ def get_cached_security_descriptor(file_path):
     except Exception as e:
         print(f"Error retrieving security descriptor for {file_path}: {e}")
         return None
+
+
+def get_cached_sid(sid):
+    try:
+        # Print the current cache size for debugging
+       # print(f"Debug: Current SID cache size: {len(sid_cache)}")
+
+        # Iterate through the list to find the SID
+        for cached_sid, cached_account in sid_cache:
+            if cached_sid == sid:
+                #print(f"Debug: SID found in cache: {sid}")
+                return cached_account
+
+
+        #print(f"Debug: Resolving SID: {sid}")
+        user, domain, _ = win32security.LookupAccountSid(None, sid)
+        account = f"{domain}\\{user}"
+        #print(f"Debug: Successfully resolved SID to Account: {account}")
+
+    except win32security.error as e:
+        #print(f"Debug: Win32 error resolving SID: {sid}, Error: {e}")
+        account = f"Unknown SID: {sid}"
+
+    except Exception as e:
+        #print(f"Debug: Unexpected error while resolving SID: {sid}, Error: {e}")
+        account = f"Unknown SID (Unknown Error)"
+
+    # Always cache the result to avoid reprocessing problematic entries
+    sid_cache.append((sid, account))
+    return account
+
+
 
 
