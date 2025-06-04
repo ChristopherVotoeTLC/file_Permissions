@@ -1,7 +1,10 @@
 import os
+from logging import exception
+
 import ntsecuritycon as nt
 import win32security
 import pathlib as path
+from methodtools import lru_cache
 
 
 
@@ -15,7 +18,8 @@ PERMISSION_HIERARCH ={
 
 
 security_descriptor_cache = {}
-sid_cache = []
+sid_cache_dict = {}
+owner_cache = {}
 
 # Evaluates the mask and determines the permission
 def determine_hierarch(mask):
@@ -112,6 +116,14 @@ def get_user_permissions_only(file_path):
         security_reader = get_cached_security_descriptor(file_path)
         dacl = security_reader.GetSecurityDescriptorDacl()
 
+        try:
+            folder_owner = get_cached_folder_owner(file_path)
+            print(f"{folder_owner}")
+        except exception as e:
+            print(f"Error while retrieving owner for {file_path}: {e}")
+            folder_owner = "Unknown"
+
+
         if dacl is None:
             return [("Error", "No DACL found", "")]
 
@@ -125,15 +137,15 @@ def get_user_permissions_only(file_path):
             ace = dacl.GetAce(i)
             ace_flags = ace[0][1]
             #print(F" {ace_flags}")
-            mask = ace[1]  # Access mask (permissions)
-            sid = ace[2]  # Security Identifier (SID)
+            mask = ace[1]  # permissions
+            sid = ace[2]  # Security Identifier
 
             # Check only for "User" principals
             principal_type = get_principal_type(sid)
 
-            if principal_type == "User":  # Only process users
+            if principal_type == "User":  #
                 try:
-                    account = get_cached_sid(sid)
+                    account =get_cached_sid(sid)
                 except win32security.error:
                     account = f"Unknown SID: {sid}"
 
@@ -149,7 +161,7 @@ def get_user_permissions_only(file_path):
 
                 if (account, source) in encountered_principal_sources:
 
-                    source = " "
+                    source = "FIX MEE GOJNE FOREVER"
                 else:
                     # Add the (account, source) pair to the set
                     encountered_principal_sources.add((account, source))
@@ -157,7 +169,7 @@ def get_user_permissions_only(file_path):
                 type_path_permission=check_inheritance_type(ace_flags)
 
                 # Append to user-specific permission results
-                user_permissions.append((account, permission, source, type_path_permission))
+                user_permissions.append((account, permission, source, type_path_permission,folder_owner))
 
         return user_permissions
 
@@ -361,35 +373,98 @@ def get_cached_security_descriptor(file_path):
         print(f"Error retrieving security descriptor for {file_path}: {e}")
         return None
 
+#List version, MID
+# def get_cached_sid(sid):
+#     try:
+#         # Print the current cache size for debugging
+#        # print(f"Debug: Current SID cache size: {len(sid_cache)}")
+#
+#         # Iterate through the list to find the SID
+#         for cached_sid, cached_account in sid_cache:
+#             if cached_sid == sid:
+#                 #print(f"Debug: SID found in cache: {sid}")
+#                 return cached_account
+#
+#
+#         #print(f"Debug: Resolving SID: {sid}")
+#         user, domain, _ = win32security.LookupAccountSid(None, sid)
+#         account = f"{domain}\\{user}"
+#         #print(f"Debug: Successfully resolved SID to Account: {account}")
+#
+#     except win32security.error as e:
+#         #print(f"Debug: Win32 error resolving SID: {sid}, Error: {e}")
+#         account = f"Unknown SID: {sid}"
+#
+#     except Exception as e:
+#         #print(f"Debug: Unexpected error while resolving SID: {sid}, Error: {e}")
+#         account = f"Unknown SID (Unknown Error)"
+#
+#     # Always cache the result to avoid reprocessing problematic entries
+#     sid_cache.append((sid, account))
+#     return account
+
+def hash_sid(sid):
+
+    sid_string = win32security.ConvertSidToStringSid(sid)
+    return hash(sid_string)
 
 def get_cached_sid(sid):
+
+    #hash_sid_ = None
     try:
-        # Print the current cache size for debugging
-       # print(f"Debug: Current SID cache size: {len(sid_cache)}")
 
-        # Iterate through the list to find the SID
-        for cached_sid, cached_account in sid_cache:
-            if cached_sid == sid:
-                #print(f"Debug: SID found in cache: {sid}")
-                return cached_account
+        hashed_sid_ = hash_sid(sid)
 
 
-        #print(f"Debug: Resolving SID: {sid}")
+        if hashed_sid_ in sid_cache_dict:
+            return sid_cache_dict[hashed_sid_]
+
+
         user, domain, _ = win32security.LookupAccountSid(None, sid)
         account = f"{domain}\\{user}"
-        #print(f"Debug: Successfully resolved SID to Account: {account}")
+    except win32security.error:
+        account = f"Unknown SID: {sid}"  # missing SID
+    except Exception as e:
+        account = f"Unknown SID (Error: {e})"
 
-    except win32security.error as e:
-        #print(f"Debug: Win32 error resolving SID: {sid}, Error: {e}")
-        account = f"Unknown SID: {sid}"
+    # Store the result in the cache
+    sid_cache_dict[hashed_sid_] = account
+    return account
+
+
+
+def get_cached_folder_owner(file_path):
+    try:
+        # Check explicitly if the path is a root-level folder (C:\ etc.)
+        if os.path.dirname(file_path) == file_path:
+            root_path = os.path.splitdrive(file_path)[0] + "\\"  # Ensure root path format
+            if root_path in owner_cache:
+                return owner_cache[root_path]
+            file_path = root_path  # Query the actual root folder
+
+        # Cache logic
+        if file_path in owner_cache:
+            return owner_cache[file_path]
+
+        # Use win32security to get the owner
+        security_descriptor = win32security.GetFileSecurity(
+            file_path, win32security.OWNER_SECURITY_INFORMATION
+        )
+        owner_sid = security_descriptor.GetSecurityDescriptorOwner()
+        owner_name, domain, _ = win32security.LookupAccountSid(None, owner_sid)
+
+        # Cache the owner for this folder
+        owner = f"{domain}\\{owner_name}"
+        owner_cache[file_path] = owner
+
+        return owner
 
     except Exception as e:
-        #print(f"Debug: Unexpected error while resolving SID: {sid}, Error: {e}")
-        account = f"Unknown SID (Unknown Error)"
+        return f"Error retrieving owner: {e}"
 
-    # Always cache the result to avoid reprocessing problematic entries
-    sid_cache.append((sid, account))
-    return account
+
+
+
 
 
 

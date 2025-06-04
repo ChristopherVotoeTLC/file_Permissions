@@ -267,12 +267,14 @@ class TestGUI(QMainWindow):
 
         # Tree widget for displaying folder structure and permissions
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["Folder","User","Permissions", "Inheritance","Type"])
+        self.tree_widget.setHeaderLabels(["Folder","User","Permissions", "Inheritance","Type","Folder Owner"])
+
         self.tree_widget.setColumnWidth(0, 250)
         self.tree_widget.setColumnWidth(1, 250)
         self.tree_widget.setColumnWidth(2, 175)
-        self.tree_widget.setColumnWidth(3, 600)
-        self.tree_widget.setColumnWidth(4, 200)
+        self.tree_widget.setColumnWidth(3, 550)
+        self.tree_widget.setColumnWidth(4, 300)
+        self.tree_widget.setColumnWidth(5, 250)
         layout.addWidget(self.tree_widget)
 
         search_layout = QHBoxLayout()
@@ -347,9 +349,9 @@ class TestGUI(QMainWindow):
                     current_parent.addChild(folder_item)
 
                     # Add permissions for this branch
-                    for user1, perm1, source1, type1 in folder_details["permissions"]:
+                    for user1, perm1, source1, type1, owner1 in folder_details["permissions"]:
                         permission_item1 = QTreeWidgetItem(
-                            [f"",f"{user1}", f"     {perm1}", f"{source1}", f"{type1}"]
+                            [f"",f"{user1}", f"     {perm1}", f"{source1}", f"{type1}", f"{owner1} "]
                         )
                         folder_item.addChild(permission_item1)
 
@@ -362,9 +364,9 @@ class TestGUI(QMainWindow):
             self.tree_widget.addTopLevelItem(top_item)
 
             # Add permissions for the top-level
-            for user, perm, source, type in details["permissions"]:
+            for user, perm, source, type, owner in details["permissions"]:
                 permission_item = QTreeWidgetItem(
-                    [f"",f"{user}", f"     {perm}", f"{source}", f"{type}"]
+                    [f"",f"{user}", f"     {perm}", f"{source}", f"{type}", f"{owner}"]
                 )
                 top_item.addChild(permission_item)
 
