@@ -1,10 +1,11 @@
 import os
+import threading
 from logging import exception
-
 import ntsecuritycon as nt
 import win32security
 import pathlib as path
-from methodtools import lru_cache
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 
 
@@ -62,23 +63,23 @@ def determine_hierarch(mask):
     return permission
 
 # List the permission for the provided folder path m
-def get_all_principal_permission(file_path):
+def get_all_principal_permission(root_path):
     try:
-        print(f"Debug: Processing file: {file_path}")
+        print(f"Debug: Processing file: {root_path}")
 
         # Retrieve the security descriptor and DACL
-        security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+        security_reader = win32security.GetFileSecurity(root_path, win32security.DACL_SECURITY_INFORMATION)
         dacl = security_reader.GetSecurityDescriptorDacl()
 
         if dacl is None:
-            print(f"Debug: No DACL found for file: {file_path}")
+            print(f"Debug: No DACL found for file: {root_path}")
             return [("Error", "No DACL found", "")]
 
         security_permissions = []
         encountered_principal_sources = set()
 
         # Loop through all ACEs
-        print(f"Debug: Total ACEs for file: {file_path} = {dacl.GetAceCount()}")
+        print(f"Debug: Total ACEs for file: {root_path} = {dacl.GetAceCount()}")
         for i in range(dacl.GetAceCount()):
             ace = dacl.GetAce(i)
             ace_flags = ace[0][1]
@@ -96,7 +97,7 @@ def get_all_principal_permission(file_path):
 
             # Permission hierarchy
             perms = determine_hierarch(mask)
-            source = "Set Here" if not (ace_flags & win32security.INHERITED_ACE) else get_inheritance_source(file_path,
+            source = "Set Here" if not (ace_flags & win32security.INHERITED_ACE) else get_inheritance_source(root_path,
                                                                                                              sid, mask)
             type_path_permission = check_inheritance_type(ace_flags)
 
@@ -105,21 +106,21 @@ def get_all_principal_permission(file_path):
         return security_permissions
 
     except Exception as ex:
-        print(f"Debug: Error retrieving principal permissions for file: {file_path}, Error: {ex}")
+        print(f"Debug: Error retrieving principal permissions for file: {root_path}, Error: {ex}")
         return [("Error", str(ex), "")]
 
 
 # List the permission for the provided folder path and user
-def get_user_permissions_only(file_path):
+def get_user_permissions_only(root_path):
     try:
         # Retrieve the security descriptor for the given file
-        security_reader = get_cached_security_descriptor(file_path)
+        security_reader = get_cached_security_descriptor(root_path)
         dacl = security_reader.GetSecurityDescriptorDacl()
 
         try:
-            folder_owner = get_cached_folder_owner(file_path)
+            folder_owner = get_cached_folder_owner(root_path)
         except exception as e:
-            print(f"Error while retrieving owner for {file_path}: {e}")
+            print(f"Error while retrieving owner for {root_path}: {e}")
             folder_owner = "Unknown"
 
 
@@ -128,7 +129,7 @@ def get_user_permissions_only(file_path):
 
         user_permissions = []
 
-        # Use a set to track encountered (account, source) pairs
+        # Use a set to track  pairs
         encountered_principal_sources = set()
 
         # Loop through all Access Control Entries (ACE)
@@ -154,7 +155,7 @@ def get_user_permissions_only(file_path):
 
                 # Check for inheritance flags
                 if ace_flags & win32security.INHERITED_ACE:
-                    source = get_inheritance_source(file_path, sid, mask)
+                    source = get_inheritance_source(root_path, sid, mask)
                 else:
                     source = "Set Here"
 
@@ -176,10 +177,10 @@ def get_user_permissions_only(file_path):
         return [("Error", str(e), "")]
 
 # List the permission for the provided folder path and group
-def get_group_permissions_only(file_path):
+def get_group_permissions_only(root_path):
     try:
         # Retrieve the security descriptor for the given file
-        security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+        security_reader = win32security.GetFileSecurity(root_path, win32security.DACL_SECURITY_INFORMATION)
         dacl = security_reader.GetSecurityDescriptorDacl()
 
         if dacl is None:
@@ -209,7 +210,7 @@ def get_group_permissions_only(file_path):
 
                 # Check for inheritance flags
                 if ace_flags & win32security.INHERITED_ACE:
-                    source = get_inheritance_source(file_path, sid, mask)
+                    source = get_inheritance_source(root_path, sid, mask)
                 else:
                     source = "Set Here"
 
@@ -290,21 +291,21 @@ def store_all_principal_permission_as_dict(root_path):
 
     return folder_permissions
 
-def store_user_permissions_only_as_dict(root_path):
-    folder_permissions = {}
-    folder_count=0
-    for dirpath, principle, permission in os.walk(root_path, topdown=True):
-        try:
-            folder_count+=1
-            permissions = get_user_permissions_only(dirpath)
-            relative_path = path.Path(dirpath).relative_to(root_path)
-            folder_permissions[str(relative_path)] = permissions
-            print(f"{folder_count}")
-        except Exception as e:
-            folder_permissions[str(path.Path(dirpath).relative_to(root_path))] = [
-                ("Error", str(e), "None")
-            ]
-    return folder_permissions
+# def store_user_permissions_only_as_dict(root_path):
+#     folder_permissions = {}
+#     folder_count=0
+#     for dirpath, principle, permission in os.walk(root_path, topdown=True):
+#         try:
+#             folder_count+=1
+#             permissions = get_user_permissions_only(dirpath)
+#             relative_path = path.Path(dirpath).relative_to(root_path)
+#             folder_permissions[str(relative_path)] = permissions
+#             print(f"{folder_count}")
+#         except Exception as e:
+#             folder_permissions[str(path.Path(dirpath).relative_to(root_path))] = [
+#                 ("Error", str(e), "None")
+#             ]
+#     return folder_permissions
 
 def store_group_permissions_only_as_dict(root_path):
     folder_permissions = {}
@@ -408,28 +409,21 @@ def hash_sid(sid):
     return hash(sid_string)
 
 def get_cached_sid(sid):
-
-    #hash_sid_ = None
     try:
+        hashed_sid = hash_sid(sid)
 
-        hashed_sid_ = hash_sid(sid)
-
-
-        if hashed_sid_ in sid_cache_dict:
-            return sid_cache_dict[hashed_sid_]
-
+        with threading.Lock():
+            if hashed_sid in sid_cache_dict:
+                return sid_cache_dict[hashed_sid]
 
         user, domain, _ = win32security.LookupAccountSid(None, sid)
         account = f"{domain}\\{user}"
-    except win32security.error:
-        account = f"Unknown SID: {sid}"  # missing SID
+
+        with threading.Lock():
+            sid_cache_dict[hashed_sid] = account
+        return account
     except Exception as e:
-        account = f"Unknown SID (Error: {e})"
-
-    # Store the result in the cache
-    sid_cache_dict[hashed_sid_] = account
-    return account
-
+        return f"Unknown SID (Error: {e})"
 
 
 def get_cached_folder_owner(file_path):
@@ -460,6 +454,50 @@ def get_cached_folder_owner(file_path):
 
     except Exception as e:
         return f"Error retrieving owner: {e}"
+
+#Multithread ????
+def process_folder_permissions(folder_path, root_path, cache, cache_lock):
+    try:
+        # Retrieve user permissions for the current folder
+        folder_permissions = get_user_permissions_only(folder_path)
+        relative_path = path.Path(folder_path).relative_to(root_path)
+
+        # Cache should be updated in a thread-safe way
+        with cache_lock:
+            cache[str(relative_path)] = folder_permissions
+
+    except Exception as e:
+        with cache_lock:
+            cache[str(path.Path(folder_path).relative_to(root_path))] = [
+                ("Error", str(e), "None")
+            ]
+
+def store_user_permissions_only_as_dict_multithreaded(root_path, max_workers=8):
+    """
+    Multithreaded implementation to retrieve user permissions for all folders under a root path.
+    """
+    folder_permissions = {}
+    cache_lock = threading.Lock()  # To ensure thread-safe cache access
+
+    # Use a ThreadPoolExecutor to parallelize folder permission processing
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Generate tasks for all folders in the root_path
+        tasks = [
+            executor.submit(process_folder_permissions, dirpath, root_path, folder_permissions, cache_lock)
+            for dirpath, _, _ in os.walk(root_path, topdown=False)
+        ]
+
+        # Wait for all threads to complete and handle any errors
+        for future in as_completed(tasks):
+            try:
+                future.result()  # Raises any exception from the thread
+            except Exception as exc:
+                print(f"Error processing task: {exc}")
+
+    return folder_permissions
+
+
+
 
 
 
