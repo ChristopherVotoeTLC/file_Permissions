@@ -22,7 +22,7 @@ PERMISSION_HIERARCH ={
 
 security_descriptor_cache = {}
 sid_cache_dict = {}
-owner_cache = {}
+
 
 # Evaluates the mask and determines the permission
 def determine_hierarch(mask):
@@ -433,10 +433,10 @@ def hash_sid(sid):
 
 def get_folder_owner(file_path):
     try:
-        # Check explicitly if the path is a root-level folder (e.g., C:\ )
+
         if os.path.dirname(file_path) == file_path:
             root_path = os.path.splitdrive(file_path)[0] + "\\"
-            file_path = root_path  # Ensure proper root folder query
+            file_path = root_path
 
         # Use win32security to get the owner descriptor
         security_descriptor = win32security.GetFileSecurity(
@@ -460,7 +460,7 @@ def process_folder_permissions(folder_path, root_path, cache, cache_lock):
         folder_permissions = get_user_permissions_only(folder_path)
         relative_path = path.Path(folder_path).relative_to(root_path)
 
-        # Cache should be updated in a thread-safe way
+        #
         with cache_lock:
             cache[str(relative_path)] = folder_permissions
 
@@ -471,36 +471,34 @@ def process_folder_permissions(folder_path, root_path, cache, cache_lock):
             ]
 
 def store_user_permissions_only_as_dict_multithreaded(root_path, max_workers=8):
-    """
-    Multithreaded implementation to retrieve user permissions for all folders under a root path.
-    """
+
     folder_permissions = {}
     cache_lock = threading.Lock()  # To ensure thread-safe cache access
 
-    # Use a ThreadPoolExecutor to parallelize folder permission processing
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Generate tasks for all folders in the root_path
+
         tasks = [
             executor.submit(process_folder_permissions, dirpath, root_path, folder_permissions, cache_lock)
             for dirpath, _, _ in os.walk(root_path, topdown=False)
         ]
 
-        # Wait for all threads to complete and handle any errors
+
         for future in as_completed(tasks):
             try:
-                future.result()  # Raises any exception from the thread
+                future.result()
             except Exception as exc:
                 print(f"Error processing task: {exc}")
 
     return folder_permissions
-
+#____________________________________________________________________________________
 
 def get_cached_security_descriptor(file_path):
 
     with security_cache_lock:
         if file_path in security_descriptor_cache:
 
-            print(f"[Cache Hit: Security Descriptor] {file_path}")
+            #print(f"[Cache Hit: Security Descriptor] {file_path}")
             return security_descriptor_cache[file_path]
 
     try:
@@ -509,13 +507,12 @@ def get_cached_security_descriptor(file_path):
         with security_cache_lock:
             security_descriptor_cache[file_path] = security_reader
 
-            print(f"[Cache Miss: Security Descriptor] {file_path}")
+            #print(f"[Cache Miss: Security Descriptor] {file_path}")
 
         return security_reader
     except Exception as e:
         print(f"Error retrieving security descriptor for {file_path}: {e}")
         return None
-
 
 def get_cached_sid(sid):
 
@@ -524,8 +521,6 @@ def get_cached_sid(sid):
 
         with sid_cache_lock:
             if hashed_sid in sid_cache_dict:
-
-
                 return sid_cache_dict[hashed_sid]
 
         user, domain, _ = win32security.LookupAccountSid(None, sid)
@@ -533,7 +528,6 @@ def get_cached_sid(sid):
 
         with sid_cache_lock:
             sid_cache_dict[hashed_sid] = account
-
 
         return account
     except Exception as e:
