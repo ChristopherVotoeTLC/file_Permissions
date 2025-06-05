@@ -118,7 +118,6 @@ def get_user_permissions_only(file_path):
 
         try:
             folder_owner = get_cached_folder_owner(file_path)
-            print(f"{folder_owner}")
         except exception as e:
             print(f"Error while retrieving owner for {file_path}: {e}")
             folder_owner = "Unknown"
@@ -161,7 +160,7 @@ def get_user_permissions_only(file_path):
 
                 if (account, source) in encountered_principal_sources:
 
-                    source = "FIX MEE GOJNE FOREVER"
+                    source = "FIX MEE GONE FOREVER"
                 else:
                     # Add the (account, source) pair to the set
                     encountered_principal_sources.add((account, source))

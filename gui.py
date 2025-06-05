@@ -331,9 +331,8 @@ class TestGUI(QMainWindow):
             #Once all subfolders are done, add the permissions
             current_level["permissions"].extend(permissions)
 
-
         def add_items(parent_item, folder_data):
-           #List that will hold all the branches, starts with just the parent branch and its data
+            # List that will hold all the branches, starts with just the parent branch and its data
             holder_list = [(parent_item, folder_data)]
 
             while holder_list:
@@ -344,35 +343,42 @@ class TestGUI(QMainWindow):
                     if folder_name == "permissions":
                         continue
 
-                    # Create a new tree branch
-                    folder_item = QTreeWidgetItem([folder_name, ""])
+                    # Extract owner for this branch
+                    branch_owner = folder_details["permissions"][0][4] if folder_details["permissions"] else "No Owner"
+
+                    # Create a new tree branch and display the owner once on this branch
+                    folder_item = QTreeWidgetItem([folder_name, "", "", "", "", f"       {branch_owner}"])
+
                     current_parent.addChild(folder_item)
 
                     # Add permissions for this branch
-                    for user1, perm1, source1, type1, owner1 in folder_details["permissions"]:
+                    for user1, perm1, source1, type1, _ in folder_details["permissions"]:
                         permission_item1 = QTreeWidgetItem(
-                            [f"",f"{user1}", f"     {perm1}", f"{source1}", f"{type1}", f"{owner1} "]
+                            ["", f"{user1}", f"     {perm1}", f"{source1}", f"{type1}", ""]
                         )
                         folder_item.addChild(permission_item1)
 
-                    #Adds the branch to the hold list if the folder has subfolders recall and does everything again
+                    # Adds the branch to the hold list if the folder has subfolders
                     holder_list.append((folder_item, folder_details["subfolders"]))
 
         # Starts filling the tree widget
-        for top_folder, details in tree_data.items():
-            top_item = QTreeWidgetItem([top_folder, ""])
+        for top_folder, details, in tree_data.items():
+            # Extract the owner of the top-level folder
+            top_owner = details["permissions"][0][4] if details["permissions"] else "No Owner"
+
+            #
+            top_item = QTreeWidgetItem([top_folder, "", "", "", "", top_owner])
             self.tree_widget.addTopLevelItem(top_item)
 
             # Add permissions for the top-level
-            for user, perm, source, type, owner in details["permissions"]:
+            for user, perm, source, type, _ in details["permissions"]:
                 permission_item = QTreeWidgetItem(
-                    [f"",f"{user}", f"     {perm}", f"{source}", f"{type}", f"{owner}"]
+                    ["", f"{user}", f"     {perm}", f"{source}", f"{type}", ""]
                 )
                 top_item.addChild(permission_item)
 
             # Add subfolders
             add_items(top_item, details["subfolders"])
-
 
         self.progress_bar.setValue(100)
 
