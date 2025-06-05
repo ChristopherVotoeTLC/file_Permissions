@@ -7,6 +7,8 @@ import pathlib as path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
+security_cache_lock = threading.Lock()
+sid_cache_lock = threading.Lock()
 
 
 PERMISSION_HIERARCH ={
@@ -118,7 +120,7 @@ def get_user_permissions_only(root_path):
         dacl = security_reader.GetSecurityDescriptorDacl()
 
         try:
-            folder_owner = get_cached_folder_owner(root_path)
+            folder_owner = get_folder_owner(root_path)
         except exception as e:
             print(f"Error while retrieving owner for {root_path}: {e}")
             folder_owner = "Unknown"
@@ -360,19 +362,6 @@ def check_inheritance_type(ace_flags):
         case _ if not ace_flags & (nt.OBJECT_INHERIT_ACE | nt.CONTAINER_INHERIT_ACE):
             inheritance_type = "This Folder Only"
     return inheritance_type
-
-def get_cached_security_descriptor(file_path):
-    if file_path in security_descriptor_cache:
-        return security_descriptor_cache[file_path]
-
-    try:
-        security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
-        security_descriptor_cache[file_path] = security_reader
-        return security_reader
-    except Exception as e:
-        print(f"Error retrieving security descriptor for {file_path}: {e}")
-        return None
-
 #List version, MID
 # def get_cached_sid(sid):
 #     try:
@@ -408,52 +397,61 @@ def hash_sid(sid):
     sid_string = win32security.ConvertSidToStringSid(sid)
     return hash(sid_string)
 
-def get_cached_sid(sid):
+# def get_cached_sid(sid):
+#     try:
+#         hashed_sid = hash_sid(sid)
+#
+#         with sid_lock:
+#             if hashed_sid in sid_cache_dict:
+#                 return sid_cache_dict[hashed_sid]
+#
+#         user, domain, _ = win32security.LookupAccountSid(None, sid)
+#         account = f"{domain}\\{user}"
+#
+#         with threading.Lock():
+#             sid_cache_dict[hashed_sid] = account
+#         return account
+#     except Exception as e:
+#         return f"Unknown SID (Error: {e})"
+
+# def get_cached_security_descriptor(file_path):
+#
+#     with security_cache_lock:
+#         if file_path in security_descriptor_cache:
+#             return security_descriptor_cache[file_path]
+#
+#     try:
+#         security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+#
+#         with security_cache_lock:
+#             security_descriptor_cache[file_path] = security_reader
+#
+#         return security_reader
+#     except Exception as e:
+#         print(f"Error retrieving security descriptor for {file_path}: {e}")
+#         return None
+
+def get_folder_owner(file_path):
     try:
-        hashed_sid = hash_sid(sid)
-
-        with threading.Lock():
-            if hashed_sid in sid_cache_dict:
-                return sid_cache_dict[hashed_sid]
-
-        user, domain, _ = win32security.LookupAccountSid(None, sid)
-        account = f"{domain}\\{user}"
-
-        with threading.Lock():
-            sid_cache_dict[hashed_sid] = account
-        return account
-    except Exception as e:
-        return f"Unknown SID (Error: {e})"
-
-
-def get_cached_folder_owner(file_path):
-    try:
-        # Check explicitly if the path is a root-level folder (C:\ etc.)
+        # Check explicitly if the path is a root-level folder (e.g., C:\ )
         if os.path.dirname(file_path) == file_path:
-            root_path = os.path.splitdrive(file_path)[0] + "\\"  # Ensure root path format
-            if root_path in owner_cache:
-                return owner_cache[root_path]
-            file_path = root_path  # Query the actual root folder
+            root_path = os.path.splitdrive(file_path)[0] + "\\"
+            file_path = root_path  # Ensure proper root folder query
 
-        # Cache logic
-        if file_path in owner_cache:
-            return owner_cache[file_path]
-
-        # Use win32security to get the owner
+        # Use win32security to get the owner descriptor
         security_descriptor = win32security.GetFileSecurity(
             file_path, win32security.OWNER_SECURITY_INFORMATION
         )
         owner_sid = security_descriptor.GetSecurityDescriptorOwner()
         owner_name, domain, _ = win32security.LookupAccountSid(None, owner_sid)
 
-        # Cache the owner for this folder
         owner = f"{domain}\\{owner_name}"
-        owner_cache[file_path] = owner
-
+        print(f"Retrieved Owner for {file_path}: {owner}")
         return owner
 
     except Exception as e:
         return f"Error retrieving owner: {e}"
+
 
 #Multithread ????
 def process_folder_permissions(folder_path, root_path, cache, cache_lock):
@@ -495,6 +493,51 @@ def store_user_permissions_only_as_dict_multithreaded(root_path, max_workers=8):
                 print(f"Error processing task: {exc}")
 
     return folder_permissions
+
+
+def get_cached_security_descriptor(file_path):
+
+    with security_cache_lock:
+        if file_path in security_descriptor_cache:
+
+            print(f"[Cache Hit: Security Descriptor] {file_path}")
+            return security_descriptor_cache[file_path]
+
+    try:
+        security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+
+        with security_cache_lock:
+            security_descriptor_cache[file_path] = security_reader
+
+            print(f"[Cache Miss: Security Descriptor] {file_path}")
+
+        return security_reader
+    except Exception as e:
+        print(f"Error retrieving security descriptor for {file_path}: {e}")
+        return None
+
+
+def get_cached_sid(sid):
+
+    try:
+        hashed_sid = hash_sid(sid)
+
+        with sid_cache_lock:
+            if hashed_sid in sid_cache_dict:
+
+
+                return sid_cache_dict[hashed_sid]
+
+        user, domain, _ = win32security.LookupAccountSid(None, sid)
+        account = f"{domain}\\{user}"
+
+        with sid_cache_lock:
+            sid_cache_dict[hashed_sid] = account
+
+
+        return account
+    except Exception as e:
+        return f"Unknown SID (Error: {e})"
 
 
 

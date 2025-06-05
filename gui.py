@@ -177,7 +177,7 @@ class TestGUI(QMainWindow):
         padding: 5px;
         font-weight: bold;
         font-family: "Roboto", sans-serif;
-        font-size: 15px; 
+        font-size: 12px; 
     }
     /*Children branches such as each folder*/
     QTreeWidget::item:!has-children { 
@@ -185,7 +185,7 @@ class TestGUI(QMainWindow):
         color: #00000;
         font-weight: Normal;
         font-family: "Roboto", sans-serif;
-        font-size: 15px; 
+        font-size: 12px; 
                    
     }
 
