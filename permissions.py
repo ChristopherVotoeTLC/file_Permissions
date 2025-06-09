@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 security_cache_lock = threading.Lock()
 sid_cache_lock = threading.Lock()
+user_permissions_tracker = {}
 
 
 PERMISSION_HIERARCH ={
@@ -119,26 +120,25 @@ def get_user_permissions_only(root_path):
         security_reader = get_cached_security_descriptor(root_path)
         dacl = security_reader.GetSecurityDescriptorDacl()
 
+        # Retrieve folder owner
         try:
             folder_owner = get_folder_owner(root_path)
         except exception as e:
             print(f"Error while retrieving owner for {root_path}: {e}")
             folder_owner = "Unknown"
 
-
         if dacl is None:
             return [("Error", "No DACL found", "")]
 
         user_permissions = []
 
-        # Use a set to track  pairs
-        encountered_principal_sources = set()
+        # Use a set to track (user_permission, inheritance_type) for GLOBAL tracking
+        inherited_permissions_tracker = user_permissions_tracker.setdefault(root_path, set())
 
         # Loop through all Access Control Entries (ACE)
         for i in range(dacl.GetAceCount()):
             ace = dacl.GetAce(i)
             ace_flags = ace[0][1]
-            #print(F" {ace_flags}")
             mask = ace[1]  # permissions
             sid = ace[2]  # Security Identifier
 
@@ -147,36 +147,43 @@ def get_user_permissions_only(root_path):
 
             if principal_type == "User":  #
                 try:
-                    account =get_cached_sid(sid)
+                    account = get_cached_sid(sid)
                 except win32security.error:
                     account = f"Unknown SID: {sid}"
 
-                # Determine categorized permissions based on mask
-                perms = determine_hierarch(mask)
-                permission = "".join(perms)
+                # Categorize the permission based on mask
+                permission = determine_hierarch(mask)
 
-                # Check for inheritance flags
+                # Determine inheritance flags and type
                 if ace_flags & win32security.INHERITED_ACE:
                     source = get_inheritance_source(root_path, sid, mask)
                 else:
                     source = "Set Here"
 
-                if (account, source) in encountered_principal_sources:
+                type_path_permission = check_inheritance_type(ace_flags)
 
-                    source = "FIX MEE GONE FOREVER"
-                else:
-                    # Add the (account, source) pair to the set
-                    encountered_principal_sources.add((account, source))
+                # Composite key for global tracking of user-permission-inheritance
+                global_user_permission_key = (account, permission, type_path_permission)
 
-                type_path_permission=check_inheritance_type(ace_flags)
+                # Skip if permission is already inherited and unchanged
+                if "This Folder, Subfolders, and Files" in type_path_permission:
+                    if global_user_permission_key in inherited_permissions_tracker:
+                        print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
+                        continue
+                    else:
+                        # Add to global tracker
+                        inherited_permissions_tracker.add(global_user_permission_key)
 
-                # Append to user-specific permission results
-                user_permissions.append((account, permission, source, type_path_permission,folder_owner))
+                # Append the current result for local storage
+                user_permissions.append((account, permission, source, type_path_permission, folder_owner))
 
         return user_permissions
 
     except Exception as e:
         return [("Error", str(e), "")]
+
+
+
 
 # List the permission for the provided folder path and group
 def get_group_permissions_only(root_path):
@@ -532,13 +539,3 @@ def get_cached_sid(sid):
         return account
     except Exception as e:
         return f"Unknown SID (Error: {e})"
-
-
-
-
-
-
-
-
-
-
