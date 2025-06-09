@@ -12,6 +12,7 @@ sid_cache_lock = threading.Lock()
 user_permissions_tracker = {}
 
 
+
 PERMISSION_HIERARCH ={
     "Full Control": nt.FILE_ALL_ACCESS,
     "Modify": (nt.FILE_GENERIC_EXECUTE| nt.FILE_DELETE_CHILD| nt.FILE_GENERIC_READ | nt.FILE_GENERIC_WRITE ),
@@ -68,7 +69,7 @@ def determine_hierarch(mask):
 # List the permission for the provided folder path m
 def get_all_principal_permission(root_path):
     try:
-        print(f"Debug: Processing file: {root_path}")
+        #print(f"Debug: Processing file: {root_path}")
 
         # Retrieve the security descriptor and DACL
         security_reader = win32security.GetFileSecurity(root_path, win32security.DACL_SECURITY_INFORMATION)
@@ -82,20 +83,20 @@ def get_all_principal_permission(root_path):
         encountered_principal_sources = set()
 
         # Loop through all ACEs
-        print(f"Debug: Total ACEs for file: {root_path} = {dacl.GetAceCount()}")
+        #print(f"Debug: Total ACEs for file: {root_path} = {dacl.GetAceCount()}")
         for i in range(dacl.GetAceCount()):
             ace = dacl.GetAce(i)
             ace_flags = ace[0][1]
             mask = ace[1]
             sid = ace[2]
 
-            print(f"Debug: ACE #{i + 1} - SID: {sid}, Mask: {mask}, Flags: {ace_flags}")
+            #print(f"Debug: ACE #{i + 1} - SID: {sid}, Mask: {mask}, Flags: {ace_flags}")
 
             try:
                 account = get_cached_sid(sid)
-                print(f"Debug: Resolved SID to Account for ACE #{i + 1}: {account}")
+                #print(f"Debug: Resolved SID to Account for ACE #{i + 1}: {account}")
             except Exception as e:
-                print(f"Debug: Error resolving SID for ACE #{i + 1}: {sid}, Error: {e}")
+                #print(f"Debug: Error resolving SID for ACE #{i + 1}: {sid}, Error: {e}")
                 account = f"Unknown SID: {sid}"
 
             # Permission hierarchy
@@ -109,7 +110,7 @@ def get_all_principal_permission(root_path):
         return security_permissions
 
     except Exception as ex:
-        print(f"Debug: Error retrieving principal permissions for file: {root_path}, Error: {ex}")
+        #print(f"Debug: Error retrieving principal permissions for file: {root_path}, Error: {ex}")
         return [("Error", str(ex), "")]
 
 
@@ -133,7 +134,8 @@ def get_user_permissions_only(root_path):
         user_permissions = []
 
         # Use a set to track (user_permission, inheritance_type) for GLOBAL tracking
-        inherited_permissions_tracker = user_permissions_tracker.setdefault(root_path, set())
+        parent_path = os.path.dirname(root_path)
+        inherited_permissions_tracker = user_permissions_tracker.setdefault(parent_path, set())
 
         # Loop through all Access Control Entries (ACE)
         for i in range(dacl.GetAceCount()):
@@ -168,7 +170,7 @@ def get_user_permissions_only(root_path):
                 # Skip if permission is already inherited and unchanged
                 if "This Folder, Subfolders, and Files" in type_path_permission:
                     if global_user_permission_key in inherited_permissions_tracker:
-                        print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
+                        #print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
                         continue
                     else:
                         # Add to global tracker
@@ -330,7 +332,7 @@ def store_group_permissions_only_as_dict(root_path):
     return folder_permissions
 
 def get_inheritance_source(file_path, sid, inherited_mask):
-    parent_path = os.path.dirname(file_path)
+    parent_path = file_path
 
     while parent_path:
         try:
@@ -348,7 +350,7 @@ def get_inheritance_source(file_path, sid, inherited_mask):
                         # If the permission is set here, return the source folder
                         return parent_path
         except Exception as e:
-            print(f"Error while retrieving security for {parent_path}: {e}")
+            #print(f"Error while retrieving security for {parent_path}: {e}")
             return "Unknown"
 
         above_parent_path = os.path.dirname(parent_path)
@@ -453,7 +455,7 @@ def get_folder_owner(file_path):
         owner_name, domain, _ = win32security.LookupAccountSid(None, owner_sid)
 
         owner = f"{domain}\\{owner_name}"
-        print(f"Retrieved Owner for {file_path}: {owner}")
+        #print(f"Retrieved Owner for {file_path}: {owner}")
         return owner
 
     except Exception as e:
@@ -501,38 +503,38 @@ def store_user_permissions_only_as_dict_multithreaded(root_path, max_workers=8):
 #____________________________________________________________________________________
 
 def get_cached_security_descriptor(file_path):
-
     with security_cache_lock:
         if file_path in security_descriptor_cache:
-
-            #print(f"[Cache Hit: Security Descriptor] {file_path}")
-            return security_descriptor_cache[file_path]
+            return security_descriptor_cache[file_path]  # Return cached descriptor
 
     try:
-        security_reader = win32security.GetFileSecurity(file_path, win32security.DACL_SECURITY_INFORMATION)
+        # Retrieve security descriptor if not cached
+        security_reader = win32security.GetFileSecurity(
+            file_path, win32security.DACL_SECURITY_INFORMATION
+        )
 
+        # Cache the security descriptor
         with security_cache_lock:
             security_descriptor_cache[file_path] = security_reader
-
-            #print(f"[Cache Miss: Security Descriptor] {file_path}")
 
         return security_reader
     except Exception as e:
         print(f"Error retrieving security descriptor for {file_path}: {e}")
         return None
 
+
 def get_cached_sid(sid):
-
     try:
-        hashed_sid = hash_sid(sid)
-
+        hashed_sid = hash_sid(sid)  # Create a unique hash for the SID
         with sid_cache_lock:
             if hashed_sid in sid_cache_dict:
-                return sid_cache_dict[hashed_sid]
+                return sid_cache_dict[hashed_sid]  # Return cached SID
 
+        # SID resolution (this is expensive)
         user, domain, _ = win32security.LookupAccountSid(None, sid)
         account = f"{domain}\\{user}"
 
+        # Cache resolved SID
         with sid_cache_lock:
             sid_cache_dict[hashed_sid] = account
 
