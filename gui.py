@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
 import qtawesome as qta
 import os
 from permissions import (
-    store_all_principal_permission_as_dict, store_user_permissions_only_as_dict_multithreaded, store_group_permissions_only_as_dict
+    store_all_permissions_only_as_dict_multithreaded, store_user_permissions_only_as_dict_multithreaded, store_group_permissions_only_as_dict_multithreaded
 )
 
 
@@ -47,9 +47,9 @@ class TestGUI(QMainWindow):
             if self.method == "users_only":
                 folder_permissions = store_user_permissions_only_as_dict_multithreaded(self.root_path, max_workers=8)
             elif self.method == "groups_only":
-                folder_permissions = store_group_permissions_only_as_dict(self.root_path)
+                folder_permissions = store_group_permissions_only_as_dict_multithreaded(self.root_path)
             else:  # Default: "all"
-                folder_permissions = store_all_principal_permission_as_dict(self.root_path)
+                folder_permissions = store_all_permissions_only_as_dict_multithreaded(self.root_path)
 
             # Emit progress as complete
             self.progress_update.emit(100)
