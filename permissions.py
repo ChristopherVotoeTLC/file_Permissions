@@ -25,260 +25,6 @@ PERMISSION_HIERARCH ={
 security_descriptor_cache = {}
 sid_cache_dict = {}
 
-
-# Evaluates the mask and determines the permission
-def determine_hierarch(mask):
-    # print(f"Debug: Determining permission for mask: {hex(mask)}")
-
-    # Check Full Control first
-    if mask == PERMISSION_HIERARCH["Full Control"]:
-        return "Full Control"
-
-    # Check Modify
-    modify_mask = PERMISSION_HIERARCH["Modify"]
-    if (mask == modify_mask) or (mask == 0x1301bf):
-        return "Modify"
-
-    # Check Read & Execute
-    read_execute_mask = PERMISSION_HIERARCH["Read & Execute"]
-    if (mask & read_execute_mask) == read_execute_mask:
-        return "Read & Execute"
-
-    # If no standard permissions
-    specific = []
-
-    for permission_type in ["Read", "Write", "Execute", "Delete"]:
-        match permission_type:
-            case "Read":
-                if mask & nt.FILE_GENERIC_READ == nt.FILE_GENERIC_READ:
-                    specific.append("Read")
-            case "Write":
-                if mask & nt.FILE_GENERIC_WRITE == nt.FILE_GENERIC_WRITE:
-                    specific.append("Write")
-            case "Execute":
-                if mask & nt.FILE_GENERIC_EXECUTE == nt.FILE_GENERIC_EXECUTE:
-                    specific.append("Execute")
-            case "Delete":
-                if mask & nt.FILE_DELETE_CHILD == nt.FILE_DELETE_CHILD:
-                    specific.append("Delete")
-
-    permission = " + ".join(specific) if specific else "Special"
-
-    return permission
-
-# List the permission for the provided folder path m
-def get_all_principal_permission(root_path):
-    try:
-        # Retrieve the security descriptor for the given file
-        security_reader = get_cached_security_descriptor(root_path)
-        dacl = security_reader.GetSecurityDescriptorDacl()
-
-        # Retrieve folder owner
-        try:
-            folder_owner = get_folder_owner(root_path)
-        except exception as e:
-            print(f"Error while retrieving owner for {root_path}: {e}")
-            folder_owner = "Unknown"
-
-        if dacl is None:
-            return [("Error", "No DACL found", "")]
-
-        user_permissions = []
-
-        # Use a set to track (user_permission, inheritance_type) for GLOBAL tracking
-        parent_path = os.path.dirname(root_path)
-        inherited_permissions_tracker = permission_tracker.setdefault(parent_path, set())
-
-        # Loop through all Access Control Entries (ACE)
-        for i in range(dacl.GetAceCount()):
-            ace = dacl.GetAce(i)
-            ace_flags = ace[0][1]
-            mask = ace[1]  # permissions
-            sid = ace[2]  # Security Identifier
-
-            # Check only for "User" principals
-            principal_type = get_principal_type(sid)
-
-
-            try:
-                account = get_cached_sid(sid)
-            except win32security.error:
-                account = f"Unknown SID: {sid}"
-
-            # Categorize the permission based on mask
-            permission = determine_hierarch(mask)
-
-            # Determine inheritance flags and type
-            if ace_flags & win32security.INHERITED_ACE:
-                source = get_inheritance_source(root_path, sid, mask)
-            else:
-                source = "Set Here"
-
-            type_path_permission = check_inheritance_type(ace_flags)
-
-            # Composite key for global tracking of user-permission-inheritance
-            global_user_permission_key = (account, permission, type_path_permission)
-
-            # Skip if permission is already inherited and unchanged
-            if "This Folder, Subfolders, and Files" in type_path_permission:
-                if global_user_permission_key in inherited_permissions_tracker:
-                    # print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
-                    continue
-                else:
-                    # Add to global tracker
-                    inherited_permissions_tracker.add(global_user_permission_key)
-
-            # Append the current result for local storage
-            user_permissions.append((account, permission, source, type_path_permission, folder_owner))
-
-        return user_permissions
-
-    except Exception as e:
-        return [("Error", str(e), "")]
-
-# List the permission for the provided folder path and user
-def get_user_permissions_only(root_path):
-    try:
-        # Retrieve the security descriptor for the given file
-        security_reader = get_cached_security_descriptor(root_path)
-        dacl = security_reader.GetSecurityDescriptorDacl()
-
-        # Retrieve folder owner
-        try:
-            folder_owner = get_folder_owner(root_path)
-        except exception as e:
-            print(f"Error while retrieving owner for {root_path}: {e}")
-            folder_owner = "Unknown"
-
-        if dacl is None:
-            return [("Error", "No DACL found", "")]
-
-        user_permissions = []
-
-        # Use a set to track (user_permission, inheritance_type) for GLOBAL tracking
-        parent_path = os.path.dirname(root_path)
-        inherited_permissions_tracker = permission_tracker.setdefault(parent_path, set())
-
-        # Loop through all Access Control Entries (ACE)
-        for i in range(dacl.GetAceCount()):
-            ace = dacl.GetAce(i)
-            ace_flags = ace[0][1]
-            mask = ace[1]  # permissions
-            sid = ace[2]  # Security Identifier
-
-            # Check only for "User" principals
-            principal_type = get_principal_type(sid)
-
-            if principal_type == "User":  #
-                try:
-                    account = get_cached_sid(sid)
-                except win32security.error:
-                    account = f"Unknown SID: {sid}"
-
-                # Categorize the permission based on mask
-                permission = determine_hierarch(mask)
-
-                # Determine inheritance flags and type
-                if ace_flags & win32security.INHERITED_ACE:
-                    source = get_inheritance_source(root_path, sid, mask)
-                else:
-                    source = "Set Here"
-
-                type_path_permission = check_inheritance_type(ace_flags)
-
-                # Composite key for global tracking of user-permission-inheritance
-                global_user_permission_key = (account, permission, type_path_permission)
-
-                # Skip if permission is already inherited and unchanged
-                if "This Folder, Subfolders, and Files" in type_path_permission:
-                    if global_user_permission_key in inherited_permissions_tracker:
-                        #print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
-                        continue
-                    else:
-                        # Add to global tracker
-                        inherited_permissions_tracker.add(global_user_permission_key)
-
-                # Append the current result for local storage
-                user_permissions.append((account, permission, source, type_path_permission, folder_owner))
-
-        return user_permissions
-
-    except Exception as e:
-        return [("Error", str(e), "")]
-
-
-
-
-# List the permission for the provided folder path and group
-def get_group_permissions_only(root_path):
-    try:
-        # Retrieve the security descriptor for the given file
-        security_reader = get_cached_security_descriptor(root_path)
-        dacl = security_reader.GetSecurityDescriptorDacl()
-
-        # Retrieve folder owner
-        try:
-            folder_owner = get_folder_owner(root_path)
-        except exception as e:
-            print(f"Error while retrieving owner for {root_path}: {e}")
-            folder_owner = "Unknown"
-
-        if dacl is None:
-            return [("Error", "No DACL found", "")]
-
-        user_permissions = []
-
-        # Use a set to track (user_permission, inheritance_type) for GLOBAL tracking
-        parent_path = os.path.dirname(root_path)
-        inherited_permissions_tracker = permission_tracker.setdefault(parent_path, set())
-
-        # Loop through all Access Control Entries (ACE)
-        for i in range(dacl.GetAceCount()):
-            ace = dacl.GetAce(i)
-            ace_flags = ace[0][1]
-            mask = ace[1]  # permissions
-            sid = ace[2]  # Security Identifier
-
-            # Check only for "User" principals
-            principal_type = get_principal_type(sid)
-
-            if principal_type == "Group":
-                try:
-                    account = get_cached_sid(sid)
-                except win32security.error:
-                    account = f"Unknown SID: {sid}"
-
-                # Categorize the permission based on mask
-                permission = determine_hierarch(mask)
-
-                # Determine inheritance flags and type
-                if ace_flags & win32security.INHERITED_ACE:
-                    source = get_inheritance_source(root_path, sid, mask)
-                else:
-                    source = "Set Here"
-
-                type_path_permission = check_inheritance_type(ace_flags)
-
-                # Composite key for global tracking of user-permission-inheritance
-                global_user_permission_key = (account, permission, type_path_permission)
-
-                # Skip if permission is already inherited and unchanged
-                if "This Folder, Subfolders, and Files" in type_path_permission:
-                    if global_user_permission_key in inherited_permissions_tracker:
-                        # print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
-                        continue
-                    else:
-                        # Add to global tracker
-                        inherited_permissions_tracker.add(global_user_permission_key)
-
-                # Append the current result for local storage
-                user_permissions.append((account, permission, source, type_path_permission, folder_owner))
-
-        return user_permissions
-
-    except Exception as e:
-        return [("Error", str(e), "")]
-# Decides if a user or a group
 def get_principal_type(sid):
     try:
         _, _, account_type = win32security.LookupAccountSid(None, sid)
@@ -291,7 +37,6 @@ def get_principal_type(sid):
         return "Other"
     except win32security.error:
         return "Unknown"
-
 # def get_all_folder_permission(root_path):
 #     """
 #     Retrieve permissions for all folders under a given root directory.
@@ -373,7 +118,6 @@ def get_principal_type(sid):
 #                 ("Error", str(e), "None")
 #             ]
 #     return folder_permissions
-
 def get_inheritance_source(file_path, sid, inherited_mask):
     parent_path = file_path
 
@@ -443,12 +187,320 @@ def check_inheritance_type(ace_flags):
 #     # Always cache the result to avoid reprocessing problematic entries
 #     sid_cache.append((sid, account))
 #     return account
-
 def hash_sid(sid):
 
     sid_string = win32security.ConvertSidToStringSid(sid)
     return hash(sid_string)
+# Evaluates the mask and determines the permission
+def determine_hierarch(mask):
+    # print(f"Debug: Determining permission for mask: {hex(mask)}")
 
+    # Check Full Control first
+    if mask == PERMISSION_HIERARCH["Full Control"]:
+        return "Full Control"
+
+    # Check Modify
+    modify_mask = PERMISSION_HIERARCH["Modify"]
+    if (mask == modify_mask) or (mask == 0x1301bf):
+        return "Modify"
+
+    # Check Read & Execute
+    read_execute_mask = PERMISSION_HIERARCH["Read & Execute"]
+    if (mask & read_execute_mask) == read_execute_mask:
+        return "Read & Execute"
+
+    # If no standard permissions
+    specific = []
+
+    for permission_type in ["Read", "Write", "Execute", "Delete"]:
+        match permission_type:
+            case "Read":
+                if mask & nt.FILE_GENERIC_READ == nt.FILE_GENERIC_READ:
+                    specific.append("Read")
+            case "Write":
+                if mask & nt.FILE_GENERIC_WRITE == nt.FILE_GENERIC_WRITE:
+                    specific.append("Write")
+            case "Execute":
+                if mask & nt.FILE_GENERIC_EXECUTE == nt.FILE_GENERIC_EXECUTE:
+                    specific.append("Execute")
+            case "Delete":
+                if mask & nt.FILE_DELETE_CHILD == nt.FILE_DELETE_CHILD:
+                    specific.append("Delete")
+
+    permission = " + ".join(specific) if specific else "Special"
+
+    return permission
+
+def get_folder_owner(file_path):
+    try:
+
+        if os.path.dirname(file_path) == file_path:
+            root_path = os.path.splitdrive(file_path)[0] + "\\"
+            file_path = root_path
+
+        # Use win32security to get the owner descriptor
+        security_descriptor = win32security.GetFileSecurity(
+            file_path, win32security.OWNER_SECURITY_INFORMATION
+        )
+        owner_sid = security_descriptor.GetSecurityDescriptorOwner()
+        owner_name, domain, _ = win32security.LookupAccountSid(None, owner_sid)
+
+        owner = f"{domain}\\{owner_name}"
+        #print(f"Retrieved Owner for {file_path}: {owner}")
+        return owner
+
+    except Exception as e:
+        return f"Error retrieving owner: {e}"
+
+def get_cached_security_descriptor(file_path):
+    with security_cache_lock:
+        if file_path in security_descriptor_cache:
+            return security_descriptor_cache[file_path]  # Return cached descriptor
+
+    try:
+        # Retrieve security descriptor if not cached
+        security_reader = win32security.GetFileSecurity(
+            file_path, win32security.DACL_SECURITY_INFORMATION
+        )
+
+        # Cache the security descriptor
+        with security_cache_lock:
+            security_descriptor_cache[file_path] = security_reader
+
+        return security_reader
+    except Exception as e:
+        print(f"Error retrieving security descriptor for {file_path}: {e}")
+        return None
+
+def get_cached_sid(sid):
+    try:
+        hashed_sid = hash_sid(sid)  # Create a unique hash for the SID
+        with sid_cache_lock:
+            if hashed_sid in sid_cache_dict:
+                return sid_cache_dict[hashed_sid]  # Return cached SID
+
+        # SID resolution (this is expensive)
+        user, domain, _ = win32security.LookupAccountSid(None, sid)
+        account = f"{domain}\\{user}"
+
+        # Cache resolved SID
+        with sid_cache_lock:
+            sid_cache_dict[hashed_sid] = account
+
+        return account
+    except Exception as e:
+        return f"Unknown SID (Error: {e})"
+
+
+
+
+# List the permission for the provided folder path m
+def get_all_principal_permission(root_path):
+    try:
+        # Retrieve the security descriptor for the given file
+        security_reader = get_cached_security_descriptor(root_path)
+        dacl = security_reader.GetSecurityDescriptorDacl()
+
+        # Retrieve folder owner
+        try:
+            folder_owner = get_folder_owner(root_path)
+        except exception as e:
+            print(f"Error while retrieving owner for {root_path}: {e}")
+            folder_owner = "Unknown"
+
+        if dacl is None:
+            return [("Error", "No DACL found", "")]
+
+        user_permissions = []
+
+        # Use a set to track (user_permission, inheritance_type) for GLOBAL tracking
+        parent_path = os.path.dirname(root_path)
+        inherited_permissions_tracker = permission_tracker.setdefault(parent_path, set())
+
+        # Loop through all Access Control Entries (ACE)
+        for i in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(i)
+            ace_flags = ace[0][1]
+            mask = ace[1]  # permissions
+            sid = ace[2]  # Security Identifier
+
+            # Check only for "User" principals
+            principal_type = get_principal_type(sid)
+
+
+            try:
+                account = get_cached_sid(sid)
+            except win32security.error:
+                account = f"Unknown SID: {sid}"
+
+            # Categorize the permission based on mask
+            permission = determine_hierarch(mask)
+
+            # Determine inheritance flags and type
+            if ace_flags & win32security.INHERITED_ACE:
+                source = get_inheritance_source(root_path, sid, mask)
+            else:
+                source = "Set Here"
+
+            type_path_permission = check_inheritance_type(ace_flags)
+
+            # Composite key for global tracking of user-permission-inheritance
+            global_user_permission_key = (account, permission, type_path_permission)
+
+            # Skip if permission is already inherited and unchanged
+            if "This Folder, Subfolders, and Files" in type_path_permission:
+                if global_user_permission_key in inherited_permissions_tracker:
+                    # print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
+                    continue
+                else:
+                    # Add to global tracker
+                    inherited_permissions_tracker.add(global_user_permission_key)
+
+            # Append the current result for local storage
+            user_permissions.append((account, permission, source, type_path_permission, folder_owner))
+
+        return user_permissions
+
+    except Exception as e:
+        return [("Error", str(e), "")]
+# List the permission for the provided folder path and user
+def get_user_permissions_only(root_path):
+    try:
+        # Retrieve the security descriptor for the given file
+        security_reader = get_cached_security_descriptor(root_path)
+        dacl = security_reader.GetSecurityDescriptorDacl()
+
+        # Retrieve folder owner
+        try:
+            folder_owner = get_folder_owner(root_path)
+        except exception as e:
+            print(f"Error while retrieving owner for {root_path}: {e}")
+            folder_owner = "Unknown"
+
+        if dacl is None:
+            return [("Error", "No DACL found", "")]
+
+        user_permissions = []
+
+        # Use a set to track (user_permission, inheritance_type) for GLOBAL tracking
+        parent_path = os.path.dirname(root_path)
+        inherited_permissions_tracker = permission_tracker.setdefault(parent_path, set())
+
+        # Loop through all Access Control Entries (ACE)
+        for i in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(i)
+            ace_flags = ace[0][1]
+            mask = ace[1]  # permissions
+            sid = ace[2]  # Security Identifier
+
+            # Check only for "User" principals
+            principal_type = get_principal_type(sid)
+
+            if principal_type == "User":  #
+                try:
+                    account = get_cached_sid(sid)
+                except win32security.error:
+                    account = f"Unknown SID: {sid}"
+
+                # Categorize the permission based on mask
+                permission = determine_hierarch(mask)
+
+                # Determine inheritance flags and type
+                if ace_flags & win32security.INHERITED_ACE:
+                    source = get_inheritance_source(root_path, sid, mask)
+                else:
+                    source = "Set Here"
+
+                type_path_permission = check_inheritance_type(ace_flags)
+
+                # Composite key for global tracking of user-permission-inheritance
+                global_user_permission_key = (account, permission, type_path_permission)
+
+                # Skip if permission is already inherited and unchanged
+                if "This Folder, Subfolders, and Files" in type_path_permission:
+                    if global_user_permission_key in inherited_permissions_tracker:
+                        #print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
+                        continue
+                    else:
+                        # Add to global tracker
+                        inherited_permissions_tracker.add(global_user_permission_key)
+
+                # Append the current result for local storage
+                user_permissions.append((account, permission, source, type_path_permission, folder_owner))
+
+        return user_permissions
+
+    except Exception as e:
+        return [("Error", str(e), "")]
+# List the permission for the provided folder path and group
+def get_group_permissions_only(root_path):
+    try:
+        # Retrieve the security descriptor for the given file
+        security_reader = get_cached_security_descriptor(root_path)
+        dacl = security_reader.GetSecurityDescriptorDacl()
+
+        # Retrieve folder owner
+        try:
+            folder_owner = get_folder_owner(root_path)
+        except exception as e:
+            print(f"Error while retrieving owner for {root_path}: {e}")
+            folder_owner = "Unknown"
+
+        if dacl is None:
+            return [("Error", "No DACL found", "")]
+
+        user_permissions = []
+
+        # Use a set to track (user_permission, inheritance_type) for GLOBAL tracking
+        parent_path = os.path.dirname(root_path)
+        inherited_permissions_tracker = permission_tracker.setdefault(parent_path, set())
+
+        # Loop through all Access Control Entries (ACE)
+        for i in range(dacl.GetAceCount()):
+            ace = dacl.GetAce(i)
+            ace_flags = ace[0][1]
+            mask = ace[1]  # permissions
+            sid = ace[2]  # Security Identifier
+
+            # Check only for "User" principals
+            principal_type = get_principal_type(sid)
+
+            if principal_type == "Group":
+                try:
+                    account = get_cached_sid(sid)
+                except win32security.error:
+                    account = f"Unknown SID: {sid}"
+
+                # Categorize the permission based on mask
+                permission = determine_hierarch(mask)
+
+                # Determine inheritance flags and type
+                if ace_flags & win32security.INHERITED_ACE:
+                    source = get_inheritance_source(root_path, sid, mask)
+                else:
+                    source = "Set Here"
+
+                type_path_permission = check_inheritance_type(ace_flags)
+
+                # Composite key for global tracking of user-permission-inheritance
+                global_user_permission_key = (account, permission, type_path_permission)
+
+                # Skip if permission is already inherited and unchanged
+                if "This Folder, Subfolders, and Files" in type_path_permission:
+                    if global_user_permission_key in inherited_permissions_tracker:
+                        # print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
+                        continue
+                    else:
+                        # Add to global tracker
+                        inherited_permissions_tracker.add(global_user_permission_key)
+
+                # Append the current result for local storage
+                user_permissions.append((account, permission, source, type_path_permission, folder_owner))
+
+        return user_permissions
+
+    except Exception as e:
+        return [("Error", str(e), "")]
 # def get_cached_sid(sid):
 #     try:
 #         hashed_sid = hash_sid(sid)
@@ -483,29 +535,10 @@ def hash_sid(sid):
 #         print(f"Error retrieving security descriptor for {file_path}: {e}")
 #         return None
 
-def get_folder_owner(file_path):
-    try:
-
-        if os.path.dirname(file_path) == file_path:
-            root_path = os.path.splitdrive(file_path)[0] + "\\"
-            file_path = root_path
-
-        # Use win32security to get the owner descriptor
-        security_descriptor = win32security.GetFileSecurity(
-            file_path, win32security.OWNER_SECURITY_INFORMATION
-        )
-        owner_sid = security_descriptor.GetSecurityDescriptorOwner()
-        owner_name, domain, _ = win32security.LookupAccountSid(None, owner_sid)
-
-        owner = f"{domain}\\{owner_name}"
-        #print(f"Retrieved Owner for {file_path}: {owner}")
-        return owner
-
-    except Exception as e:
-        return f"Error retrieving owner: {e}"
 
 
-#Multithread ????
+
+#Multithread
 def process_folder_permissions_user(folder_path, root_path, cache, cache_lock):
     try:
         # Retrieve user permissions for the current folder
@@ -621,42 +654,3 @@ def store_all_permissions_only_as_dict_multithreaded(root_path, max_workers=8):
     return folder_permissions
 #____________________________________________________________________________________
 
-def get_cached_security_descriptor(file_path):
-    with security_cache_lock:
-        if file_path in security_descriptor_cache:
-            return security_descriptor_cache[file_path]  # Return cached descriptor
-
-    try:
-        # Retrieve security descriptor if not cached
-        security_reader = win32security.GetFileSecurity(
-            file_path, win32security.DACL_SECURITY_INFORMATION
-        )
-
-        # Cache the security descriptor
-        with security_cache_lock:
-            security_descriptor_cache[file_path] = security_reader
-
-        return security_reader
-    except Exception as e:
-        print(f"Error retrieving security descriptor for {file_path}: {e}")
-        return None
-
-
-def get_cached_sid(sid):
-    try:
-        hashed_sid = hash_sid(sid)  # Create a unique hash for the SID
-        with sid_cache_lock:
-            if hashed_sid in sid_cache_dict:
-                return sid_cache_dict[hashed_sid]  # Return cached SID
-
-        # SID resolution (this is expensive)
-        user, domain, _ = win32security.LookupAccountSid(None, sid)
-        account = f"{domain}\\{user}"
-
-        # Cache resolved SID
-        with sid_cache_lock:
-            sid_cache_dict[hashed_sid] = account
-
-        return account
-    except Exception as e:
-        return f"Unknown SID (Error: {e})"

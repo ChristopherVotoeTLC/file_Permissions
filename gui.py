@@ -242,11 +242,11 @@ class TestGUI(QMainWindow):
         # self.inheritance_checkbox.setChecked(False)
         # layout.addWidget(self.inheritance_checkbox)
 
-        self.show_groups_checkbox = QCheckBox("Include Groups")
-        self.show_groups_checkbox.setChecked(False)
-        layout.addWidget( self.show_groups_checkbox)
+        # self.show_groups_checkbox = QCheckBox("Include Groups")
+        # self.show_groups_checkbox.setChecked(False)
+        # layout.addWidget( self.show_groups_checkbox)
 
-        self.show_users_checkbox = QCheckBox("Include Users")
+        self.show_users_checkbox = QCheckBox("Only Users")
         self.show_users_checkbox.setChecked(True)
         layout.addWidget( self.show_users_checkbox)
 
@@ -347,7 +347,7 @@ class TestGUI(QMainWindow):
                     branch_owner = folder_details["permissions"][0][4] if folder_details["permissions"] else "No Owner"
 
                     # Create a new tree branch and display the owner once on this branch
-                    folder_item = QTreeWidgetItem([folder_name, "", "", "", "", f"       {branch_owner}"])
+                    folder_item = QTreeWidgetItem([folder_name, "", "", "", "", f"{branch_owner}"])
 
                     current_parent.addChild(folder_item)
 
@@ -444,7 +444,7 @@ class TestGUI(QMainWindow):
             return
 
         try:
-            include_groups = self.show_groups_checkbox.isChecked()
+            #include_groups = self.show_groups_checkbox.isChecked()
             include_users = self.show_users_checkbox.isChecked()
 
             # db_connection = connect_db()
@@ -456,15 +456,15 @@ class TestGUI(QMainWindow):
 
             #self.fill_tree(file_path_input)
 
-            if include_users and not include_groups:
+            if include_users:
                 method = "users_only"
                 print("Only users")
-            elif include_groups and not include_users:
-                method = "groups_only"
-                print("Only groups")
+            #elif include_groups and not include_users:
+               # method = "groups_only"
+               # print("Only groups")
             else:
                 method = "all"
-                print("Both users and groups")
+                print("Users and Groups")
 
             # Start the worker thread
             self.worker = self.FolderPermissionWorker(file_path_input,method)
