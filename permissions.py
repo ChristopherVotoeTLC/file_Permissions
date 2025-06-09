@@ -5,7 +5,8 @@ import ntsecuritycon as nt
 import win32security
 import pathlib as path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+from cachetools import LRUCache
+from cachetools import cached
 
 security_cache_lock = threading.Lock()
 sid_cache_lock = threading.Lock()
@@ -19,6 +20,11 @@ PERMISSION_HIERARCH ={
     "Read & Execute": nt.FILE_GENERIC_READ | nt.FILE_GENERIC_EXECUTE,
     "Write": nt.FILE_GENERIC_WRITE,
     "Read": nt.FILE_GENERIC_READ,
+}
+PERMISSION_LOOKUP = {
+    nt.FILE_ALL_ACCESS: "Full Control",
+    0x1301bf: "Modify",
+    nt.FILE_GENERIC_READ | nt.FILE_GENERIC_EXECUTE: "Read & Execute"
 }
 
 
@@ -193,43 +199,22 @@ def hash_sid(sid):
     return hash(sid_string)
 # Evaluates the mask and determines the permission
 def determine_hierarch(mask):
-    # print(f"Debug: Determining permission for mask: {hex(mask)}")
+    if mask in PERMISSION_LOOKUP:
+        return PERMISSION_LOOKUP[mask]
 
-    # Check Full Control first
-    if mask == PERMISSION_HIERARCH["Full Control"]:
-        return "Full Control"
-
-    # Check Modify
-    modify_mask = PERMISSION_HIERARCH["Modify"]
-    if (mask == modify_mask) or (mask == 0x1301bf):
-        return "Modify"
-
-    # Check Read & Execute
-    read_execute_mask = PERMISSION_HIERARCH["Read & Execute"]
-    if (mask & read_execute_mask) == read_execute_mask:
-        return "Read & Execute"
-
-    # If no standard permissions
+    # Fallback to detailed bitmask evaluation
     specific = []
+    if mask & nt.FILE_GENERIC_READ:
+        specific.append("Read")
+    if mask & nt.FILE_GENERIC_WRITE:
+        specific.append("Write")
+    if mask & nt.FILE_GENERIC_EXECUTE:
+        specific.append("Execute")
+    if mask & nt.FILE_DELETE_CHILD:
+        specific.append("Delete")
 
-    for permission_type in ["Read", "Write", "Execute", "Delete"]:
-        match permission_type:
-            case "Read":
-                if mask & nt.FILE_GENERIC_READ == nt.FILE_GENERIC_READ:
-                    specific.append("Read")
-            case "Write":
-                if mask & nt.FILE_GENERIC_WRITE == nt.FILE_GENERIC_WRITE:
-                    specific.append("Write")
-            case "Execute":
-                if mask & nt.FILE_GENERIC_EXECUTE == nt.FILE_GENERIC_EXECUTE:
-                    specific.append("Execute")
-            case "Delete":
-                if mask & nt.FILE_DELETE_CHILD == nt.FILE_DELETE_CHILD:
-                    specific.append("Delete")
+    return " + ".join(specific) if specific else "Special"
 
-    permission = " + ".join(specific) if specific else "Special"
-
-    return permission
 
 def get_folder_owner(file_path):
     try:
@@ -537,6 +522,16 @@ def get_group_permissions_only(root_path):
 
 
 
+def batch_directories(root_path, batch_size=100):
+    """Generator to yield directories in batches."""
+    batch = []
+    for dirpath, _, _ in os.walk(root_path):
+        batch.append(dirpath)
+        if len(batch) >= batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 #Multithread
 def process_folder_permissions_user(folder_path, root_path, cache, cache_lock):
@@ -653,4 +648,5 @@ def store_all_permissions_only_as_dict_multithreaded(root_path, max_workers=8):
 
     return folder_permissions
 #____________________________________________________________________________________
+
 
