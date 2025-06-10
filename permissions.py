@@ -6,10 +6,8 @@ import win32security
 import pathlib as path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from cachetools import LRUCache
-from cachetools import cached
+import threading
 
-security_cache_lock = threading.Lock()
-sid_cache_lock = threading.Lock()
 permission_tracker = {}
 
 
@@ -28,8 +26,6 @@ PERMISSION_LOOKUP = {
 }
 
 
-security_descriptor_cache = {}
-sid_cache_dict = {}
 
 def get_principal_type(sid):
     try:
@@ -237,18 +233,30 @@ def get_folder_owner(file_path):
     except Exception as e:
         return f"Error retrieving owner: {e}"
 
+
+
+
+security_descriptor_cache = LRUCache(maxsize=125000) #50,000
+
+sid_cache = LRUCache(maxsize=25000) #10,000
+
+security_cache_lock = threading.Lock()
+sid_cache_lock = threading.Lock()
+
+
 def get_cached_security_descriptor(file_path):
+
     with security_cache_lock:
         if file_path in security_descriptor_cache:
             return security_descriptor_cache[file_path]  # Return cached descriptor
 
     try:
-        # Retrieve security descriptor if not cached
+        # Retrieve the security descriptor for the file
         security_reader = win32security.GetFileSecurity(
             file_path, win32security.DACL_SECURITY_INFORMATION
         )
 
-        # Cache the security descriptor
+        # Cache the descriptor
         with security_cache_lock:
             security_descriptor_cache[file_path] = security_reader
 
@@ -257,24 +265,28 @@ def get_cached_security_descriptor(file_path):
         print(f"Error retrieving security descriptor for {file_path}: {e}")
         return None
 
-def get_cached_sid(sid):
-    try:
-        hashed_sid = hash_sid(sid)  # Create a unique hash for the SID
-        with sid_cache_lock:
-            if hashed_sid in sid_cache_dict:
-                return sid_cache_dict[hashed_sid]  # Return cached SID
 
-        # SID resolution (this is expensive)
+def get_cached_sid(sid):
+
+    try:
+        hashed_sid = hash_sid(sid)  # Hash for consistent SID lookup
+
+        with sid_cache_lock:
+            if hashed_sid in sid_cache:
+                return sid_cache[hashed_sid]  # Return cached SID
+
+        # Resolve the SID to a user/domain name
         user, domain, _ = win32security.LookupAccountSid(None, sid)
         account = f"{domain}\\{user}"
 
-        # Cache resolved SID
+        # Cache the resolved SID
         with sid_cache_lock:
-            sid_cache_dict[hashed_sid] = account
+            sid_cache[hashed_sid] = account
 
         return account
     except Exception as e:
         return f"Unknown SID (Error: {e})"
+
 
 
 
@@ -367,12 +379,13 @@ def get_user_permissions_only(root_path):
 
         user_permissions = []
 
-        # Use a set to track (user_permission, inheritance_type) for GLOBAL tracking
+
         parent_path = os.path.dirname(root_path)
         inherited_permissions_tracker = permission_tracker.setdefault(parent_path, set())
 
+        dacl_ace_count = dacl.GetAceCount()
         # Loop through all Access Control Entries (ACE)
-        for i in range(dacl.GetAceCount()):
+        for i in range(dacl_ace_count):
             ace = dacl.GetAce(i)
             ace_flags = ace[0][1]
             mask = ace[1]  # permissions
@@ -380,38 +393,39 @@ def get_user_permissions_only(root_path):
 
             # Check only for "User" principals
             principal_type = get_principal_type(sid)
+            if principal_type != "User":
+                continue
 
-            if principal_type == "User":  #
-                try:
-                    account = get_cached_sid(sid)
-                except win32security.error:
-                    account = f"Unknown SID: {sid}"
+            try:
+                account = get_cached_sid(sid)
+            except win32security.error:
+                account = f"Unknown SID: {sid}"
 
-                # Categorize the permission based on mask
-                permission = determine_hierarch(mask)
+            # Categorize the permission based on mask
+            permission = determine_hierarch(mask)
 
-                # Determine inheritance flags and type
-                if ace_flags & win32security.INHERITED_ACE:
-                    source = get_inheritance_source(root_path, sid, mask)
+            # Determine inheritance flags and type
+            if ace_flags & win32security.INHERITED_ACE:
+                source = get_inheritance_source(root_path, sid, mask)
+            else:
+                source = "Set Here"
+
+            type_path_permission = check_inheritance_type(ace_flags)
+
+            # Composite key for global tracking of user-permission-inheritance
+            global_user_permission_key = (account, permission, type_path_permission)
+
+            # Skip if permission is already inherited and unchanged
+            if "This Folder, Subfolders, and Files" in type_path_permission:
+                if global_user_permission_key in inherited_permissions_tracker:
+                    #print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
+                    continue
                 else:
-                    source = "Set Here"
+                    # Add to global tracker
+                    inherited_permissions_tracker.add(global_user_permission_key)
 
-                type_path_permission = check_inheritance_type(ace_flags)
-
-                # Composite key for global tracking of user-permission-inheritance
-                global_user_permission_key = (account, permission, type_path_permission)
-
-                # Skip if permission is already inherited and unchanged
-                if "This Folder, Subfolders, and Files" in type_path_permission:
-                    if global_user_permission_key in inherited_permissions_tracker:
-                        #print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
-                        continue
-                    else:
-                        # Add to global tracker
-                        inherited_permissions_tracker.add(global_user_permission_key)
-
-                # Append the current result for local storage
-                user_permissions.append((account, permission, source, type_path_permission, folder_owner))
+            # Append the current result for local storage
+            user_permissions.append((account, permission, source, type_path_permission, folder_owner))
 
         return user_permissions
 
@@ -533,7 +547,7 @@ def batch_directories(root_path, batch_size=100):
     if batch:
         yield batch
 
-#Multithread
+#Multithread_____________________________________________________________________________________________
 def process_folder_permissions_user(folder_path, root_path, cache, cache_lock):
     try:
         # Retrieve user permissions for the current folder
@@ -647,6 +661,6 @@ def store_all_permissions_only_as_dict_multithreaded(root_path, max_workers=8):
                 print(f"Error processing task: {exc}")
 
     return folder_permissions
-#____________________________________________________________________________________
+#_______________________________________________________________________________________________________________________
 
 

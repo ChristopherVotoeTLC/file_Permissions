@@ -16,6 +16,7 @@ class TestGUI(QMainWindow):
         progress_update = pyqtSignal(int)  # Signal for reporting progress
         tree_data_ready = pyqtSignal(dict)  # Signal for task completion (total time and report file)
 
+
         def __init__(self, root_path, method = "all"):
             super().__init__()
             self.root_path = root_path  # The root path for processing
@@ -345,6 +346,7 @@ class TestGUI(QMainWindow):
 
                     # Extract owner for this branch
                     branch_owner = folder_details["permissions"][0][4] if folder_details["permissions"] else "No Owner"
+                    #2025 folder with jobs starting in 225*** gave no owner but had owner?? test on 2024 folder
 
                     # Create a new tree branch and display the owner once on this branch
                     folder_item = QTreeWidgetItem([folder_name, "", "", "", "", f"{branch_owner}"])
@@ -476,35 +478,35 @@ class TestGUI(QMainWindow):
         except Exception as e:
             print(F"An error occurred: {e}")
 
-    def display_project_info(self, project_info):
-        self.project_info_list.clear() # Clears the listbox before starting
-        if not project_info:
-            self.project_info_list.addItem("No project found.")
-            return
-
-        for row in project_info:
-            project_number = row[0]
-            project_name = row[1]
-            emp_name = row[2]
-            division_name = row[3]
-            division_admin = row[4]
-
-        self.project_info_list.addItem(f"Project Number: {project_number}")
-        self.project_info_list.addItem(f"Project Name: {project_name}")
-        self.project_info_list.addItem(f"Employee Name: {emp_name}")
-        self.project_info_list.addItem(f"Division Name: {division_name}")
-        self.project_info_list.addItem(f"Division Admin: {division_admin}")
+    # def display_project_info(self, project_info):
+    #     self.project_info_list.clear() # Clears the listbox before starting
+    #     if not project_info:
+    #         self.project_info_list.addItem("No project found.")
+    #         return
+    #
+    #     for row in project_info:
+    #         project_number = row[0]
+    #         project_name = row[1]
+    #         emp_name = row[2]
+    #         division_name = row[3]
+    #         division_admin = row[4]
+    #
+    #     self.project_info_list.addItem(f"Project Number: {project_number}")
+    #     self.project_info_list.addItem(f"Project Name: {project_name}")
+    #     self.project_info_list.addItem(f"Employee Name: {emp_name}")
+    #     self.project_info_list.addItem(f"Division Name: {division_name}")
+    #     self.project_info_list.addItem(f"Division Admin: {division_admin}")
 
     def update_progress_bar(self, value):
 
         self.progress_bar.setValue(value)
 
-    def copy_selected_items(self):
-
-        selected_items = self.project_info_list.selectedItems()
-        selected_text = "\n".join(item.text() for item in selected_items)
-        QApplication.clipboard().setText(selected_text)
-
-    def select_all_items(self):
-
-        self.project_info_list.selectAll()
+    # def copy_selected_items(self):
+    #
+    #     selected_items = self.project_info_list.selectedItems()
+    #     selected_text = "\n".join(item.text() for item in selected_items)
+    #     QApplication.clipboard().setText(selected_text)
+    #
+    # def select_all_items(self):
+    #
+    #     self.project_info_list.selectAll()
