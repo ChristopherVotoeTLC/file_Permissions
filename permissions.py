@@ -310,19 +310,16 @@ def get_all_principal_permission(root_path):
 
         user_permissions = []
 
-        # Use a set to track (user_permission, inheritance_type) for GLOBAL tracking
         parent_path = os.path.dirname(root_path)
         inherited_permissions_tracker = permission_tracker.setdefault(parent_path, set())
 
+        dacl_ace_count = dacl.GetAceCount()
         # Loop through all Access Control Entries (ACE)
-        for i in range(dacl.GetAceCount()):
+        for i in range(dacl_ace_count):
             ace = dacl.GetAce(i)
             ace_flags = ace[0][1]
             mask = ace[1]  # permissions
             sid = ace[2]  # Security Identifier
-
-            # Check only for "User" principals
-            principal_type = get_principal_type(sid)
 
 
             try:
