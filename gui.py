@@ -7,7 +7,8 @@ from PyQt5.QtWidgets import (
 import qtawesome as qta
 import os
 from permissions import (
-    store_all_permissions_only_as_dict_multithreaded, store_user_permissions_only_as_dict_multithreaded, store_group_permissions_only_as_dict_multithreaded
+    store_all_permissions_only_as_dict_multithreaded, store_user_permissions_only_as_dict_multithreaded,
+    store_group_permissions_only_as_dict_multithreaded
 )
 
 
@@ -16,8 +17,7 @@ class TestGUI(QMainWindow):
         progress_update = pyqtSignal(int)  # Signal for reporting progress
         tree_data_ready = pyqtSignal(dict)  # Signal for task completion (total time and report file)
 
-
-        def __init__(self, root_path, method = "all"):
+        def __init__(self, root_path, method="all"):
             super().__init__()
             self.root_path = root_path  # The root path for processing
             self.method = method
@@ -31,18 +31,18 @@ class TestGUI(QMainWindow):
 
             # -----------------------------Got rid of to use only tree widget------------------------#
             # Decide which function to call based on the method type
-            #if self.method == "users_only":
-               # total_time, report_file = print_all_user_permission(
-               #     self.root_path, progress_callback)
-            #elif self.method == "groups_only":
-                #total_time, report_file = print_all_groups_permission(
-                   # self.root_path, progress_callback)
-            #else: # Default to all_permissions
-              #  total_time, report_file = print_all_principal_permission(
-               #     self.root_path, progress_callback)
+            # if self.method == "users_only":
+            # total_time, report_file = print_all_user_permission(
+            #     self.root_path, progress_callback)
+            # elif self.method == "groups_only":
+            # total_time, report_file = print_all_groups_permission(
+            # self.root_path, progress_callback)
+            # else: # Default to all_permissions
+            #  total_time, report_file = print_all_principal_permission(
+            #     self.root_path, progress_callback)
 
             # Emit the signal for task completion when done
-            #self.task_completed.emit(total_time, report_file)
+            # self.task_completed.emit(total_time, report_file)
             # -------------------------------------------------------------------------------------#
 
             if self.method == "users_only":
@@ -65,10 +65,9 @@ class TestGUI(QMainWindow):
     def start_gui(self):
         # Set up a window
         self.setWindowTitle("Folder Permissions GUI")
-        #Adds the fullscreen/minimize/close in the top right of the gui
+        # Adds the fullscreen/minimize/close in the top right of the gui
         self.setWindowFlags(self.windowFlags() | Qt.WindowMinimizeButtonHint | Qt.WindowCloseButtonHint)
-        self.setGeometry(100,100,2000,975)
-
+        self.setGeometry(100, 100, 2000, 975)
 
         # Styling!!
         self.setStyleSheet("""
@@ -171,7 +170,7 @@ class TestGUI(QMainWindow):
         background-color: #2c3e50;
         color: white;
     }
-    
+
     QTreeWidget {
         background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
         color: #000000; /*Input field text color*/
@@ -182,12 +181,12 @@ class TestGUI(QMainWindow):
     }
     /*Children branches such as each folder*/
     QTreeWidget::item:!has-children { 
-       
+
         color: #00000;
         font-weight: Normal;
         font-family: "Roboto", sans-serif;
         font-size: 12px; 
-                   
+
     }
 
     QHeaderView {
@@ -201,7 +200,7 @@ class TestGUI(QMainWindow):
         background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
         border: 1px solid #4ca1af;  
         padding: 2px;
-        
+
     }
     QScrollBar:vertical {
         background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
@@ -249,7 +248,7 @@ class TestGUI(QMainWindow):
 
         self.show_users_checkbox = QCheckBox("Only Users")
         self.show_users_checkbox.setChecked(True)
-        layout.addWidget( self.show_users_checkbox)
+        layout.addWidget(self.show_users_checkbox)
 
         # Project Details Sections
         # project_details_label = QLabel("Project Details: (Ctrl + A to select all & Ctrl + C to copy)")
@@ -268,7 +267,7 @@ class TestGUI(QMainWindow):
 
         # Tree widget for displaying folder structure and permissions
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["Folder","User","Permissions", "Inheritance","Type","Folder Owner"])
+        self.tree_widget.setHeaderLabels(["Folder", "User", "Permissions", "Inheritance", "Type", "Folder Owner"])
 
         self.tree_widget.setColumnWidth(0, 250)
         self.tree_widget.setColumnWidth(1, 250)
@@ -293,12 +292,12 @@ class TestGUI(QMainWindow):
         search_layout.addWidget(search_button)
         layout.addLayout(search_layout)
 
-        #-----------------------------Got rid of to use only tree widget------------------------#
-        #Label with file location
-        #self.file_location_label = QLabel("File Location:")
-        #layout.addWidget(self.file_location_label)
-        #self.file_path = QLineEdit()
-        #layout.addWidget(self.file_path)
+        # -----------------------------Got rid of to use only tree widget------------------------#
+        # Label with file location
+        # self.file_location_label = QLabel("File Location:")
+        # layout.addWidget(self.file_location_label)
+        # self.file_path = QLineEdit()
+        # layout.addWidget(self.file_path)
         # --------------------------------------------------------------------------------------
 
         self.progress_bar = QProgressBar()
@@ -307,29 +306,28 @@ class TestGUI(QMainWindow):
     def update_tree_widget(self, folder_permissions):
         self.tree_widget.clear()
 
-        #Dict to store which folders become children of other folders in the tree
+        # Dict to store which folders become children of other folders in the tree
         tree_data = {}
 
         # Build the tree_data dictionary
         for folder, permissions in folder_permissions.items():
-            parts = folder.split("\\") #splits folder_path
-            first_part = parts[0] #This is the top branch
+            parts = folder.split("\\")  # splits folder_path
+            first_part = parts[0]  # This is the top branch
 
-            #If it doesn't exist in tree_data, add it
+            # If it doesn't exist in tree_data, add it
             if first_part not in tree_data:
                 tree_data[first_part] = {"permissions": [], "subfolders": {}}
                 # Permission holds rules while subfolder hold child branches
-
 
             current_level = tree_data[first_part]
             for part in parts[1:]:
                 if part not in current_level["subfolders"]:
                     current_level["subfolders"][part] = {"permissions": [], "subfolders": {}}
 
-                #moves to branch with subfolder and inserts it
+                # moves to branch with subfolder and inserts it
                 current_level = current_level["subfolders"][part]
 
-            #Once all subfolders are done, add the permissions
+            # Once all subfolders are done, add the permissions
             current_level["permissions"].extend(permissions)
 
         def add_items(parent_item, folder_data):
@@ -346,7 +344,7 @@ class TestGUI(QMainWindow):
 
                     # Extract owner for this branch
                     branch_owner = folder_details["permissions"][0][4] if folder_details["permissions"] else "No Owner"
-                    #2025 folder with jobs starting in 225*** gave no owner but had owner?? test on 2024 folder
+                    # 2025 folder with jobs starting in 225*** gave no owner but had owner?? test on 2024 folder
 
                     # Create a new tree branch and display the owner once on this branch
                     folder_item = QTreeWidgetItem([folder_name, "", "", "", "", f"{branch_owner}"])
@@ -394,7 +392,7 @@ class TestGUI(QMainWindow):
 
         self.highlight_searched_item(self.tree_widget, search_term)
 
-    def highlight_searched_item(self,tree_widget,search_term):
+    def highlight_searched_item(self, tree_widget, search_term):
 
         for i in range(tree_widget.topLevelItemCount()):
             top_item = tree_widget.topLevelItem(i)
@@ -411,7 +409,6 @@ class TestGUI(QMainWindow):
             if search_term in item.text(col).lower():
                 # Highlight the matching item
                 item.setBackground(col, Qt.yellow)
-
 
         for i in range(item.childCount()):
             child = item.child(i)
@@ -446,7 +443,7 @@ class TestGUI(QMainWindow):
             return
 
         try:
-            #include_groups = self.show_groups_checkbox.isChecked()
+            # include_groups = self.show_groups_checkbox.isChecked()
             include_users = self.show_users_checkbox.isChecked()
 
             # db_connection = connect_db()
@@ -456,20 +453,20 @@ class TestGUI(QMainWindow):
             # project_info = get_project_info(file_path_input, db_connection)
             # self.display_project_info(project_info)
 
-            #self.fill_tree(file_path_input)
+            # self.fill_tree(file_path_input)
 
             if include_users:
                 method = "users_only"
                 print("Only users")
-            #elif include_groups and not include_users:
-               # method = "groups_only"
-               # print("Only groups")
+            # elif include_groups and not include_users:
+            # method = "groups_only"
+            # print("Only groups")
             else:
                 method = "all"
                 print("Users and Groups")
 
             # Start the worker thread
-            self.worker = self.FolderPermissionWorker(file_path_input,method)
+            self.worker = self.FolderPermissionWorker(file_path_input, method)
             self.worker.progress_update.connect(self.update_progress_bar)  # Connect progress updates
             self.worker.tree_data_ready.connect(self.update_tree_widget)  # Connect tree data
             self.worker.start()  # Start the worker thread
