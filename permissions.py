@@ -1,5 +1,4 @@
 import os
-import threading
 from logging import exception
 import ntsecuritycon as nt
 import win32security
@@ -125,7 +124,7 @@ def get_inheritance_source(file_path, sid, inherited_mask):
 
     while parent_path:
         try:
-            security_reader = get_cached_security_descriptor(parent_path)
+            security_reader = get_cached_security_descriptor_with_inheritance(parent_path)
             dacl = security_reader.GetSecurityDescriptorDacl()
             if dacl:
                 for i in range(dacl.GetAceCount()):
@@ -139,7 +138,7 @@ def get_inheritance_source(file_path, sid, inherited_mask):
                         # If the permission is set here, return the source folder
                         return parent_path
         except Exception as e:
-            #print(f"Error while retrieving security for {parent_path}: {e}")
+            print(f"Error while retrieving security for {parent_path}: {e}")
             return "Unknown"
 
         above_parent_path = os.path.dirname(parent_path)
@@ -234,8 +233,6 @@ def get_folder_owner(file_path):
         return f"Error retrieving owner: {e}"
 
 
-
-
 security_descriptor_cache = LRUCache(maxsize=125000) #50,000
 
 sid_cache = LRUCache(maxsize=25000) #10,000
@@ -244,22 +241,21 @@ security_cache_lock = threading.Lock()
 sid_cache_lock = threading.Lock()
 
 
-def get_cached_security_descriptor(file_path):
-
+def get_cached_security_descriptor_with_inheritance(file_path):
     with security_cache_lock:
         if file_path in security_descriptor_cache:
             return security_descriptor_cache[file_path]  # Return cached descriptor
 
+        parent_path = os.path.dirname(file_path)
+        if parent_path in security_descriptor_cache:
+            return security_descriptor_cache[parent_path]  # Return parent descriptor
+
     try:
-        # Retrieve the security descriptor for the file
         security_reader = win32security.GetFileSecurity(
             file_path, win32security.DACL_SECURITY_INFORMATION
         )
-
-        # Cache the descriptor
         with security_cache_lock:
             security_descriptor_cache[file_path] = security_reader
-
         return security_reader
     except Exception as e:
         print(f"Error retrieving security descriptor for {file_path}: {e}")
@@ -287,15 +283,11 @@ def get_cached_sid(sid):
     except Exception as e:
         return f"Unknown SID (Error: {e})"
 
-
-
-
-
 # List the permission for the provided folder path m
 def get_all_principal_permission(root_path):
     try:
         # Retrieve the security descriptor for the given file
-        security_reader = get_cached_security_descriptor(root_path)
+        security_reader = get_cached_security_descriptor_with_inheritance(root_path)
         dacl = security_reader.GetSecurityDescriptorDacl()
 
         # Retrieve folder owner
@@ -361,7 +353,7 @@ def get_all_principal_permission(root_path):
 def get_user_permissions_only(root_path):
     try:
         # Retrieve the security descriptor for the given file
-        security_reader = get_cached_security_descriptor(root_path)
+        security_reader = get_cached_security_descriptor_with_inheritance(root_path)
         dacl = security_reader.GetSecurityDescriptorDacl()
 
         # Retrieve folder owner
@@ -432,7 +424,7 @@ def get_user_permissions_only(root_path):
 def get_group_permissions_only(root_path):
     try:
         # Retrieve the security descriptor for the given file
-        security_reader = get_cached_security_descriptor(root_path)
+        security_reader = get_cached_security_descriptor_with_inheritance(root_path)
         dacl = security_reader.GetSecurityDescriptorDacl()
 
         # Retrieve folder owner
@@ -514,7 +506,7 @@ def get_group_permissions_only(root_path):
 #     except Exception as e:
 #         return f"Unknown SID (Error: {e})"
 
-# def get_cached_security_descriptor(file_path):
+# def get_cached_security_descriptor_with_inheritance(file_path):
 #
 #     with security_cache_lock:
 #         if file_path in security_descriptor_cache:
@@ -593,27 +585,26 @@ def process_folder_permissions_group(folder_path, root_path, cache, cache_lock):
                 ("Error", str(e), "None")
             ]
 
-def store_user_permissions_only_as_dict_multithreaded(root_path, max_workers=8):
-
+def store_user_permissions_only_as_dict_multithreaded(root_path, max_workers=8,batch_size=250):
     folder_permissions = {}
-    cache_lock = threading.Lock()  # To ensure thread-safe cache access
-
+    cache_lock = threading.Lock()  # Lock to protect shared dictionary access
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-
-        tasks = [
-            executor.submit(process_folder_permissions_user, dirpath, root_path, folder_permissions, cache_lock)
-            for dirpath, _, _ in os.walk(root_path, topdown=False)
+        # Submit each batch of directories as a separate task
+        futures = [
+            executor.submit(process_batch, batch, root_path, folder_permissions, cache_lock)
+            for batch in batch_directories(root_path, batch_size=batch_size)
         ]
 
-
-        for future in as_completed(tasks):
+        # Wait for all futures to complete
+        for future in as_completed(futures):
             try:
-                future.result()
+                future.result()  # Raise exceptions if any occurred
             except Exception as exc:
-                print(f"Error processing task: {exc}")
+                print(f"Error processing a batch: {exc}")
 
     return folder_permissions
+
 
 def store_group_permissions_only_as_dict_multithreaded(root_path, max_workers=8):
 
@@ -659,3 +650,42 @@ def store_all_permissions_only_as_dict_multithreaded(root_path, max_workers=8):
 
     return folder_permissions
 #_______________________________________________________________________________________________________________________
+
+def batch_directory(root_path, batch_size = 150):
+    batch = []
+    for dirpath, _, _ in os.walk(root_path):
+        batch.append(dirpath)  # Collect directories in the batch
+        if len(batch) >= batch_size:
+            yield batch  # Yield the batch when it reaches the limit
+            batch = []  # Reset the batch
+
+    # Yield remaining directories, if any
+    if batch:
+        yield batch
+
+def process_batch(batch, root_path, folder_permissions, cache_lock):
+    """
+    Process a single batch of directories.
+
+    Args:
+        batch (list): List of directory paths in the batch.
+        root_path (str): Root path for relative path calculations.
+        folder_permissions (dict): Shared dictionary of folder permissions.
+        cache_lock (threading.Lock): Lock to protect dictionary operations.
+    """
+    for dirpath in batch:
+        try:
+            # Get permissions for the current directory
+            permissions = get_user_permissions_only(dirpath)
+            relative_path = str(path.Path(dirpath).relative_to(root_path))
+
+            # Store the results in the shared dictionary
+            with cache_lock:
+                folder_permissions[relative_path] = permissions
+
+        except Exception as e:
+            # Handle errors specific to this directory
+            with cache_lock:
+                folder_permissions[str(path.Path(dirpath).relative_to(root_path))] = [
+                    ("Error", str(e), "None")
+                ]
