@@ -233,8 +233,6 @@ def get_folder_owner(file_path):
         return f"Error retrieving owner: {e}"
 
 
-
-
 security_descriptor_cache = LRUCache(maxsize=125000) #50,000
 
 sid_cache = LRUCache(maxsize=25000) #10,000
@@ -284,10 +282,6 @@ def get_cached_sid(sid):
         return account
     except Exception as e:
         return f"Unknown SID (Error: {e})"
-
-
-
-
 
 # List the permission for the provided folder path m
 def get_all_principal_permission(root_path):
