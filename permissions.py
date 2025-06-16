@@ -302,8 +302,8 @@ def get_all_principal_permission(root_path):
 
         user_permissions = []
 
-        parent_path = os.path.dirname(root_path)
-        inherited_permissions_tracker = permission_tracker.setdefault(parent_path, set())
+        # parent_path = os.path.dirname(root_path)
+        # inherited_permissions_tracker = permission_tracker.setdefault(parent_path, set())
 
         dacl_ace_count = dacl.GetAceCount()
         # Loop through all Access Control Entries (ACE)
@@ -334,13 +334,13 @@ def get_all_principal_permission(root_path):
             global_user_permission_key = (account, permission, type_path_permission)
 
             # Skip if permission is already inherited and unchanged
-            if "This Folder, Subfolders, and Files" in type_path_permission:
-                if global_user_permission_key in inherited_permissions_tracker:
-                    # print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
-                    continue
-                else:
-                    # Add to global tracker
-                    inherited_permissions_tracker.add(global_user_permission_key)
+            # if "This Folder, Subfolders, and Files" in type_path_permission:
+            #     if global_user_permission_key in inherited_permissions_tracker:
+            #         # print(f"Skipping redundant permission for {account} in {root_path} - {permission}")
+            #         continue
+            #     else:
+            #         # Add to global tracker
+            #         inherited_permissions_tracker.add(global_user_permission_key)
 
             # Append the current result for local storage
             user_permissions.append((account, permission, source, type_path_permission, folder_owner))
@@ -433,6 +433,7 @@ def get_group_permissions_only(root_path):
         except exception as e:
             print(f"Error while retrieving owner for {root_path}: {e}")
             folder_owner = "Unknown"
+
 
         if dacl is None:
             return [("Error", "No DACL found", "")]
