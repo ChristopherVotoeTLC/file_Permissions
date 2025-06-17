@@ -236,7 +236,7 @@ def add_folder_content(connection, job_id, folder_path, folder_owner, folder_dat
 
 # Function to add permissions
 def add_permissions(connection, folder_content_id, permissions):
-    """Insert permissions into the database."""
+
     try:
         cursor = connection.cursor()
         for principal, permission_type, inheritance_type, source, owner in permissions:
@@ -307,28 +307,25 @@ def process_job_folders(root_jobs_folder):
 
 # Query job info
 def query_job_info(year):
-    """Query job info based on the year."""
+
     with sqlite3.connect('C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db') as connection:
         cursor = connection.cursor()
-        cursor.execute('''SELECT Root_Folder
+        cursor.execute('''SELECT Job_Code, Job_Name
                           FROM Job
                           WHERE Job_Year = ?''', (year,))
 
-        # Fetch all results at once
         result = cursor.fetchall()
 
-        # Check if the result is empty
         if not result:
             print("No data found for the given year.")
             return []
 
-        # Process and return results
-        return [f"{Root_Folder}" for Root_Folder in result]
+        return [f"{Job_code}-{Job_Name}" for Job_code, Job_Name in result]
 
 
 # Query folder content info
 def query_folder_content_info(year):
-    """Query folder content information."""
+
     with sqlite3.connect('C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db') as connection:
         cursor = connection.cursor()
         cursor.execute('''SELECT Folder_Owner, Parent_Folder,Folder_Path
@@ -340,21 +337,33 @@ def query_folder_content_info(year):
                             
                        ''', (year,))
 
-        # Fetch all results at once
         result = cursor.fetchall()
 
-        # Check if the result is empty
         if not result:
             print("No folder content found for the given year.")
             return []
 
-        # Process and return results
-        return [f"{folder_owner}-{parent_folder}-{Folder_Path}" for folder_owner, parent_folder,Folder_Path in result]
+
+        folder_content = []
+        for data in result:
+            owner = data[0]
+            folder_path = data[2]
 
 
-# Query permissions info
+            match = re.search(r"L:\\\d{4}-Jobs\\(.+)", folder_path)
+            if match:
+                relative_path = match.group(1)
+            else:
+                # Fallback if unexpected format
+                relative_path = folder_path
+
+            folder_content.append((owner, relative_path))
+
+        return folder_content
+
+
 def query_permissions_info(year):
-    """Query permissions info."""
+
     with sqlite3.connect('C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db') as connection:
         cursor = connection.cursor()
         cursor.execute('''SELECT Principal, Permission_Type, Inheritance_Type, Inheritance_Source
@@ -375,11 +384,14 @@ def query_permissions_info(year):
             return []
 
         # Process and return results
-        return [f"{principal} {permission_type} {inheritance_type} {source}"
-                for principal, permission_type, inheritance_type, source in result]
+        return result
 
-#
+
 # test = query_permissions_info(2077)
 # for x in test:
 #     print(x)
+
+
+
+
 #process_job_folders("L:\\2077-Jobs")

@@ -15,50 +15,50 @@ query_job_info,query_folder_content_info,query_permissions_info
 )
 
 class TestGUI(QMainWindow):
-    class FolderPermissionWorker(QThread):
-        progress_update = pyqtSignal(int)  # Signal for reporting progress
-        tree_data_ready = pyqtSignal(dict)  # Signal for task completion (total time and report file)
-
-        def __init__(self, root_path, method="all"):
-            super().__init__()
-            self.root_path = root_path  # The root path for processing
-            self.method = method
-
-        def run(self):
-            def progress_callback(current, total):
-                # Calculate the percentage progress
-                if total > 0:
-                    progress_percentage = int((current / total) * 100)
-                    self.progress_update.emit(progress_percentage)
-
-            # -----------------------------Got rid of to use only tree widget------------------------#
-            # Decide which function to call based on the method type
-            # if self.method == "users_only":
-            # total_time, report_file = print_all_user_permission(
-            #     self.root_path, progress_callback)
-            # elif self.method == "groups_only":
-            # total_time, report_file = print_all_groups_permission(
-            # self.root_path, progress_callback)
-            # else: # Default to all_permissions
-            #  total_time, report_file = print_all_principal_permission(
-            #     self.root_path, progress_callback)
-
-            # Emit the signal for task completion when done
-            # self.task_completed.emit(total_time, report_file)
-            # -------------------------------------------------------------------------------------#
-
-            # if self.method == "users_only":
-            #     folder_permissions = store_user_permissions_only_as_dict_multithreaded(self.root_path, max_workers=8)
-            # elif self.method == "groups_only":
-            #     folder_permissions = store_group_permissions_only_as_dict_multithreaded(self.root_path)
-            # else:  # Default: "all"
-            #     folder_permissions = store_all_permissions_only_as_dict_multithreaded(self.root_path)
-
-            # Emit progress as complete
-            # self.progress_update.emit(100)
-            #
-            # # Send data to the GUI
-            # self.tree_data_ready.emit(folder_permissions)
+    # class FolderPermissionWorker(QThread):
+    #     progress_update = pyqtSignal(int)  # Signal for reporting progress
+    #     tree_data_ready = pyqtSignal(dict)  # Signal for task completion (total time and report file)
+    #
+    #     def __init__(self, root_path, method="all"):
+    #         super().__init__()
+    #         # self.root_path = root_path  # The root path for processing
+    #         # self.method = method
+    #
+    #     def run(self):
+    #         def progress_callback(current, total):
+    #             # Calculate the percentage progress
+    #             if total > 0:
+    #                 progress_percentage = int((current / total) * 100)
+    #                 self.progress_update.emit(progress_percentage)
+    #
+    #         # -----------------------------Got rid of to use only tree widget------------------------#
+    #         # Decide which function to call based on the method type
+    #         # if self.method == "users_only":
+    #         # total_time, report_file = print_all_user_permission(
+    #         #     self.root_path, progress_callback)
+    #         # elif self.method == "groups_only":
+    #         # total_time, report_file = print_all_groups_permission(
+    #         # self.root_path, progress_callback)
+    #         # else: # Default to all_permissions
+    #         #  total_time, report_file = print_all_principal_permission(
+    #         #     self.root_path, progress_callback)
+    #
+    #         # Emit the signal for task completion when done
+    #         # self.task_completed.emit(total_time, report_file)
+    #         # -------------------------------------------------------------------------------------#
+    #
+    #         # if self.method == "users_only":
+    #         #     folder_permissions = store_user_permissions_only_as_dict_multithreaded(self.root_path, max_workers=8)
+    #         # elif self.method == "groups_only":
+    #         #     folder_permissions = store_group_permissions_only_as_dict_multithreaded(self.root_path)
+    #         # else:  # Default: "all"
+    #         #     folder_permissions = store_all_permissions_only_as_dict_multithreaded(self.root_path)
+    #
+    #         # Emit progress as complete
+    #         # self.progress_update.emit(100)
+    #         #
+    #         # # Send data to the GUI
+    #         # self.tree_data_ready.emit(folder_permissions)
 
     def __init__(self):
         super().__init__()
@@ -300,13 +300,13 @@ class TestGUI(QMainWindow):
 
         # Tree widget for displaying folder structure and permissions
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["Folder", "User", "Permissions", "Inheritance", "Type", "Folder Owner"])
+        self.tree_widget.setHeaderLabels(["Folder","Folder Owner", "Principle","Permission",'Inheritance Type', "Inheritance Source"])
 
         self.tree_widget.setColumnWidth(0, 250)
         self.tree_widget.setColumnWidth(1, 250)
-        self.tree_widget.setColumnWidth(2, 175)
-        self.tree_widget.setColumnWidth(3, 550)
-        self.tree_widget.setColumnWidth(4, 300)
+        self.tree_widget.setColumnWidth(2, 250)
+        self.tree_widget.setColumnWidth(3, 250)
+        self.tree_widget.setColumnWidth(4, 250)
         self.tree_widget.setColumnWidth(5, 250)
         layout.addWidget(self.tree_widget)
 
@@ -530,84 +530,73 @@ class TestGUI(QMainWindow):
             year = int(year_picked)
             print(f"Year received: {year}")
             job_info = query_job_info(year)
-            print(f"query_job_info({year}) returned: {job_info}")  # Debugging: Check database output
+            # print(f"query_job_info({year}) returned: {job_info}")
 
             folder_content_info = query_folder_content_info(year)
-            print(f"query_folder_content_info({year}) returned: {folder_content_info}")  # Debugging
+            # print(f"query_folder_content_info({year}) returned: {folder_content_info}")
 
             permissions_info = query_permissions_info(year)
-            print(f"query_permissions_info({year}) returned: {permissions_info}")  # Debugging
+            # print(f"query_permissions_info({year}) returned: {permissions_info}")
 
             self.tree_widget.clear()
-            self.populate_tree(job_info, folder_content_info, permissions_info)
+            self.populate_tree2(job_info,folder_content_info,permissions_info)
         except Exception as e:
             print(e)
 
-    def populate_tree(self, job_info, folder_content_info, permissions_info):
-        # Check if there are no jobs to display
-        if not job_info:
-            no_data_item = QTreeWidgetItem(["No data for this year", "", "", "", "", ""])
-            self.tree_widget.addTopLevelItem(no_data_item)
-            return
+    def populate_tree2(self, job_info, folder_content_info, permissions_info):
+        try:
+            for job in job_info:
+                # Create a top-level tree item for each job
+                job_branch = QTreeWidgetItem([job, "", "", "", "", ""])
+                self.tree_widget.addTopLevelItem(job_branch)
 
-        # Print full input data for debugging
-        print(f"Job Info: {job_info}")
-        print(f"Folder Content Info: {folder_content_info}")
-        print(f"Permissions Info: {permissions_info}")
-
-        # Process and validate data
-        for job in job_info:
-            # Debug the current job
-            print(f"Processing job: {job}")
-
-            # Create a top-level tree item for this job
-            job_item = QTreeWidgetItem([job, "", "", "", "", ""])
-            self.tree_widget.addTopLevelItem(job_item)
-
-            # Filter folder content associated with this job (if applicable)
-            # In your case, job_info, folder_content_info, and permissions_info may not be connected directly,
-            # so you might skip filtering by job or provide additional logic if necessary.
-
-            # Iterate over folder content
-            for folder_content in folder_content_info:
-                # Debug the folder content
-                print(f"Processing folder_content: {folder_content}")
-
-                # Ensure folder_content contains exactly 2 elements (folder_owner and parent_folder)
-                if not folder_content or len(folder_content) != 2:
-                    print(f"Skipping invalid folder_content (expected 2 elements): {folder_content}")
-                    continue
-
-                # Unpack folder_content data
-                folder_owner, parent_folder, Folder_Path = folder_content
-
-                # Check for `None` or empty values in folder content
-                if folder_owner is None or parent_folder is None:
-                    print(f"Skipping folder_content with None values: {folder_content}")
-                    continue
-
-                # Create a tree item for this folder
-                folder_item = QTreeWidgetItem([{Folder_Path}, "", "", "", "", f"Owner: {folder_owner}"])
-                job_item.addChild(folder_item)
-
-                # Iterate over permissions for this folder
-                for permission in permissions_info:
-                    # Debug the permission
-                    print(f"Processing permission: {permission}")
-
-                    # Ensure each permission record has exactly 4 elements
-                    if not permission or len(permission) != 4:
-                        print(f"Skipping invalid permission (expected 4 elements): {permission}")
+                # Build a tree structure for the folders in this job
+                tree = {}
+                for folder_owner, folder_path in folder_content_info:
+                    if not folder_path.startswith(job):  # Match only folders belonging to this job
                         continue
 
-                    # Unpack permission data
-                    principal, permission_type, inheritance_type, inheritance_source = permission
+                    relative_path = folder_path[len(job):].strip("\\")
+                    parts = relative_path.split("\\")
 
-                    # Create and add a permission tree item
-                    permission_item = QTreeWidgetItem([
-                        "", principal, permission_type, inheritance_type, inheritance_source, ""
-                    ])
-                    folder_item.addChild(permission_item)  # Add to this folder
+                    current_branch = tree
+                    for part in parts:
+                        if part not in current_branch:
+                            current_branch[part] = {"owner": folder_owner, "subfolders": {}}
+                        current_branch = current_branch[part]["subfolders"]
+
+                # Recursive function to add subfolders and their permissions
+                def add_subfolders(parent_item, sub_tree, folder_path=None):
+                    for folder, data in sub_tree.items():
+                        folder_owner = data.get("owner", "Unknown Owner")
+                        full_path = folder_path + "\\" + folder if folder_path else folder
+
+                        # Create a tree item for the current folder
+                        folder_item = QTreeWidgetItem([folder, folder_owner, "", "", "", ""])
+                        parent_item.addChild(folder_item)
+
+                        # Add permissions for this folder (if any) from permissions_info
+                        for principal, permission_type, inheritance_type, inheritance_source in permissions_info:
+                            # Match permissions to this folder
+                            print(f"principal: {principal}")
+                            print(f"permission_type: {permission_type}")
+                            print(f"inheritance_type: {inheritance_type}")
+                            print(f"inheritance_source: {inheritance_source}")
+                            print(f"full_path: {full_path}")
+                            permission_item = QTreeWidgetItem([
+                                "","", principal, permission_type, inheritance_type, inheritance_source
+                            ])
+                            folder_item.addChild(permission_item)
+
+                        # Recursively add subfolders
+                        if "subfolders" in data:
+                            add_subfolders(folder_item, data["subfolders"], full_path)
+
+                # Populate the tree for the current job
+                add_subfolders(job_branch, tree)
+
+        except Exception as e:
+            print(f"Error in populate_tree2: {e}")
 
     def update_progress_bar(self, value):
 
