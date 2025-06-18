@@ -300,15 +300,31 @@ class TestGUI(QMainWindow):
 
         # Tree widget for displaying folder structure and permissions
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["Folder","Folder Owner", "Principle","Permission",'Inheritance Type', "Inheritance Source"])
+        self.tree_widget.setHeaderLabels(["Folder","Folder Owner", "Principle","Permission","Inheritance Source","Inheritance Type"])
 
-        self.tree_widget.setColumnWidth(0, 250)
+        self.inherited_permissions = {}
+
+        self.tree_widget.setColumnWidth(0, 300)
         self.tree_widget.setColumnWidth(1, 250)
         self.tree_widget.setColumnWidth(2, 250)
         self.tree_widget.setColumnWidth(3, 250)
-        self.tree_widget.setColumnWidth(4, 250)
+        self.tree_widget.setColumnWidth(4, 150)
         self.tree_widget.setColumnWidth(5, 250)
         layout.addWidget(self.tree_widget)
+
+        self.tree_widget.itemExpanded.connect(self.on_tree_expand)
+        self.tree_widget.itemClicked.connect(self.on_tree_item_clicked)
+
+        # # Add a test item with a placeholder "Loading..." child
+        # test_item = QTreeWidgetItem(["Sample Job", "Owner", "", "", "", ""])
+        # test_item.setData(0, Qt.UserRole, {"type": "job", "id": 1})  # Example metadata
+        # test_item.addChild(QTreeWidgetItem(["Loading..."]))
+        # self.tree_widget.addTopLevelItem(test_item)
+        #
+        # folder_item = QTreeWidgetItem(["Sample Folder", "Owner", "", "", "", ""])
+        # folder_item.setData(0, Qt.UserRole, {"type": "folder", "path": "/path/to/folder"})
+        # folder_item.addChild(QTreeWidgetItem(["Loading..."]))
+        # test_item.addChild(folder_item)
 
         search_layout = QHBoxLayout()
 
@@ -532,68 +548,209 @@ class TestGUI(QMainWindow):
             job_info = query_job_info(year)
             # print(f"query_job_info({year}) returned: {job_info}")
 
-            folder_content_info = query_folder_content_info(year)
-            # print(f"query_folder_content_info({year}) returned: {folder_content_info}")
-
-            permissions_info = query_permissions_info(year)
+            # folder_content_info = query_folder_content_info(year)
+            # # print(f"query_folder_content_info({year}) returned: {folder_content_info}")
+            #
+            # permissions_info = query_permissions_info(year)
             # print(f"query_permissions_info({year}) returned: {permissions_info}")
 
             self.tree_widget.clear()
-            self.populate_tree2(job_info,folder_content_info,permissions_info)
+            self.populate_tree2(job_info)
         except Exception as e:
             print(e)
 
-    def populate_tree2(self, job_info, folder_content_info, permissions_info):
+    def on_tree_expand(self, item):
         try:
-            for job in job_info:
-                # Create a top-level tree item for each job
-                job_branch = QTreeWidgetItem([job, "", "", "", "", ""])
+
+            if item.childCount() == 1 and item.child(0).text(0) == "Loading...":
+                item.takeChildren()
+
+
+                node_info = item.data(0, Qt.UserRole)
+                if not node_info or "type" not in node_info:
+                    print(f"Invalid metadata for the expanded item: {item.text(0)}")
+                    return
+
+
+                if node_info["type"] == "job":
+                    try:
+
+                        folders = query_folder_content_info(node_info["id"])
+
+                        # Create a mapping of parent IDs to their children
+                        folder_map = {}
+                        for folder_id, parent_folder, folder_owner, folder_path in folders:
+                            folder_map.setdefault(parent_folder, []).append(
+                                (folder_id, folder_owner, folder_path)
+                            )
+
+                        # Builds folder tree
+                        self.add_subfolders(item, None, folder_map)
+
+                    except Exception as e:
+                        print(f"Error loading folders for job {node_info['id']}: {e}")
+
+                # For "folder" type, fetch permissions lazily (only when the folder is clicked/expanded)
+                elif node_info["type"] == "folder":
+                    try:
+                        # Fetch permissions for this folder
+                        permissions = query_permissions_info(node_info["id"])
+                        print(f"Permissions for folder {node_info['path']}: {permissions}")
+
+                        # Add permissions as children of this folder
+                        for principal, perm, inh_type, inh_source in permissions:
+                            # Add permission as a child
+                            perm_item = QTreeWidgetItem(["", "", principal, perm, inh_type, inh_source])
+                            item.addChild(perm_item)
+
+                    except Exception as e:
+                        print(f"Error loading permissions for folder {node_info['id']}: {e}")
+
+                # Mark the node as loaded
+                node_info["loaded"] = True
+                item.setData(0, Qt.UserRole, node_info)
+
+        except Exception as e:
+            print(f"Error during tree expansion: {e}")
+
+    def on_tree_item_clicked(self, item, column):
+        """
+        Handle the click event for tree items. Fetch and display unique permissions inline for folders.
+        """
+        try:
+            # Retrieve metadata stored in the node
+            node_info = item.data(0, Qt.UserRole)
+            if not node_info or "type" not in node_info:
+                print(f"Invalid metadata for the clicked item: {item.text(0)}")
+                return
+
+            # Check if the clicked item is a folder
+            if node_info["type"] == "folder":
+
+                # Ensure we don't fetch permissions multiple times for the same folder
+                if node_info.get("loaded", False):
+                    print(f"Permissions for folder '{item.text(0)}' are already loaded.")
+                    return
+
+                # Fetch permissions for the folder
+                permissions = query_permissions_info(node_info["id"])
+                print(f"Permissions fetched for folder '{item.text(0)}': {permissions}")
+
+                # Get parent folder ID to check inherited permissions
+                parent_folder_id = node_info.get("parent_folder")
+                parent_permissions = self.inherited_permissions.get(parent_folder_id, set())
+
+                # Filter out inherited permissions
+                unique_permissions = []
+                current_permissions = set()  # Track permissions for this folder
+                for principal, perm, source, inh_type in permissions:
+                    # Check if the principal and permission are not already inherited
+                    if (principal, perm) not in parent_permissions:
+                        unique_permissions.append((principal, perm, source, inh_type))
+                        current_permissions.add((principal, perm))  # Add to current
+
+                # If unique permissions exist, process and display them
+                if unique_permissions:
+                    principals = "\n".join([perm[0] for perm in unique_permissions])   # All principals
+                    perms = "\n".join([perm[1] for perm in unique_permissions])       # All permissions
+                    inh_types = "\n".join([perm[3] for perm in unique_permissions])   # All inheritance types
+                    sources = "\n".join([perm[2] for perm in unique_permissions])    # All sources
+
+                    # Update the tree item with unique permissions
+                    item.setText(2, principals)  # Update Principle column
+                    item.setText(3, perms)       # Update Permission column
+                    item.setText(4, inh_types)   # Update Inheritance Type column
+                    item.setText(5, sources)     # Update Inheritance Source column
+                else:
+                    # If no unique permissions exist, indicate this
+                    item.setText(3, "All Permissions Inherited")
+
+                # Update inherited permissions for the current folder
+                self.inherited_permissions[node_info["id"]] = current_permissions
+
+                # Mark the folder as loaded to prevent multiple queries
+                node_info["loaded"] = True
+                item.setData(0, Qt.UserRole, node_info)
+
+        except Exception as e:
+            print(f"Error handling item click: {e}")
+
+    def add_subfolders(self, parent_item, parent_id, folder_map):
+
+        for folder_id, folder_owner, folder_path in folder_map.get(parent_id, []):
+            # Extract the last directory name
+            relative_path = os.path.basename(folder_path)
+
+            # Create a tree item for this folder
+            folder_item = QTreeWidgetItem([relative_path, folder_owner, "", "", "", ""])
+            folder_item.setData(0, Qt.UserRole,
+                                {"type": "folder", "id": folder_id, "path": folder_path, "parent_folder": parent_id,
+                                 "loaded": False})
+
+            # Add a "Loading..." placeholder for lazy expansion
+            #folder_item.addChild(QTreeWidgetItem(["Loading..."]))
+
+            # Add this folder to the parent item
+            parent_item.addChild(folder_item)
+
+            # Recursively process children of this folder
+            self.add_subfolders(folder_item, folder_id, folder_map)
+
+    def populate_tree2(self, job_info):
+        try:
+            for job_id,job_info in job_info:
+
+                job_branch = QTreeWidgetItem([job_info, "", "", "", "", ""])
+                job_branch.setData(0, Qt.UserRole, {"type": "job", "id": job_id})
+                job_branch.addChild(QTreeWidgetItem(["Loading..."]))
                 self.tree_widget.addTopLevelItem(job_branch)
 
-                # Build a tree structure for the folders in this job
-                tree = {}
-                for folder_owner, folder_path in folder_content_info:
-                    if not folder_path.startswith(job):  # Match only folders belonging to this job
-                        continue
-
-                    relative_path = folder_path[len(job):].strip("\\")
-                    parts = relative_path.split("\\")
-
-                    current_branch = tree
-                    for part in parts:
-                        if part not in current_branch:
-                            current_branch[part] = {"owner": folder_owner, "subfolders": {}}
-                        current_branch = current_branch[part]["subfolders"]
-
-                # Recursive function to add subfolders and their permissions
-                def add_subfolders(parent_item, sub_tree, folder_path=None):
-                    for folder, data in sub_tree.items():
-                        folder_owner = data.get("owner", "Unknown Owner")
-                        full_path = folder_path + "\\" + folder if folder_path else folder
-
-                        # Create a tree item for the current folder
-                        folder_item = QTreeWidgetItem([folder, folder_owner, "", "", "", ""])
-                        parent_item.addChild(folder_item)
-
-                        # Add permissions for this folder (if any) from permissions_info
-                        for principal, permission_type, inheritance_type, inheritance_source in permissions_info:
-                            # Match permissions to this folder
-                            print(f"principal: {principal}")
-                            print(f"permission_type: {permission_type}")
-                            print(f"inheritance_type: {inheritance_type}")
-                            print(f"inheritance_source: {inheritance_source}")
-                            print(f"full_path: {full_path}")
-                            permission_item = QTreeWidgetItem([
-                                "","", principal, permission_type, inheritance_type, inheritance_source
-                            ])
-                            folder_item.addChild(permission_item)
-
-                        # Recursively add subfolders
-                        if "subfolders" in data:
-                            add_subfolders(folder_item, data["subfolders"], full_path)
-
-                # Populate the tree for the current job
-                add_subfolders(job_branch, tree)
+            # # Build a dictionary to represent the folder hierarchy for this job.
+                # folder_hierarchy = {}
+                # for folder_content_id, folder_owner, folder_path in folder_content_info:
+                #     # Only add folders that belong to the current job.
+                #     if not folder_path.startswith(job):
+                #         continue
+                #
+                #     # Normalize the folder path relative to the job folder.
+                #     relative_path = folder_path[len(job):].strip("\\")
+                #     parts = relative_path.split("\\") if relative_path else []
+                #
+                #     # Build the nested hierarchy.
+                #     current_level = folder_hierarchy
+                #     for part in parts:
+                #         if part not in current_level:
+                #             current_level[part] = {
+                #                 "owner": folder_owner,
+                #                 "id": folder_content_id,
+                #                 "subfolders": {}
+                #             }
+                #         # Move deeper in the hierarchy.
+                #         current_level = current_level[part]["subfolders"]
+                #
+                # # Recursive function to add a folder hierarchy and its permissions to the tree.
+                # def add_subtree(parent_item, subtree, permissions_info):
+                #     for folder_name, folder_data in subtree.items():
+                #         folder_owner = folder_data["owner"]
+                #         folder_content_id = folder_data["id"]
+                #
+                #         # Create a tree item for the current folder.
+                #         folder_item = QTreeWidgetItem([folder_name, folder_owner, "", "", "", ""])
+                #         parent_item.addChild(folder_item)
+                #
+                #         # Add permissions to the current folder.
+                #         for perm_folder_content_id, principal, perm_type, inheritance_type, source in permissions_info:
+                #             if perm_folder_content_id == folder_content_id:
+                #                 permission_item = QTreeWidgetItem([
+                #                     "", "", principal, perm_type, inheritance_type, source
+                #                 ])
+                #                 folder_item.addChild(permission_item)
+                #
+                #         # Recursively add subfolders.
+                #         add_subtree(folder_item, folder_data["subfolders"], permissions_info)
+                #
+                # # Add the folder hierarchy for this job into the tree.
+                # add_subtree(job_branch, folder_hierarchy, permissions_info)
 
         except Exception as e:
             print(f"Error in populate_tree2: {e}")

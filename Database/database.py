@@ -310,7 +310,7 @@ def query_job_info(year):
 
     with sqlite3.connect('C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db') as connection:
         cursor = connection.cursor()
-        cursor.execute('''SELECT Job_Code, Job_Name
+        cursor.execute('''SELECT ID,Job_Code, Job_Name
                           FROM Job
                           WHERE Job_Year = ?''', (year,))
 
@@ -320,22 +320,19 @@ def query_job_info(year):
             print("No data found for the given year.")
             return []
 
-        return [f"{Job_code}-{Job_Name}" for Job_code, Job_Name in result]
+        return [(ID, f"{Job_Code}-{Job_Name}") for ID, Job_Code, Job_Name in result]
+
 
 
 # Query folder content info
-def query_folder_content_info(year):
+def query_folder_content_info(job_id):
 
     with sqlite3.connect('C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db') as connection:
         cursor = connection.cursor()
-        cursor.execute('''SELECT Folder_Owner, Parent_Folder,Folder_Path
-                          FROM Job j
-                                   LEFT JOIN Folder_Contents f
-                                             ON j.ID = f.Job_ID
-                          WHERE j.Job_Year = ?
-                          
-                            
-                       ''', (year,))
+        cursor.execute('''SELECT f.ID,f.Folder_Owner, f.Parent_Folder,f.Folder_Path
+                          FROM Folder_Contents f
+                          WHERE f.Job_ID = ?                                            
+                       ''', (job_id,))
 
         result = cursor.fetchall()
 
@@ -344,36 +341,37 @@ def query_folder_content_info(year):
             return []
 
 
-        folder_content = []
-        for data in result:
-            owner = data[0]
-            folder_path = data[2]
+        # folder_content = []
+        # for data in result:
+        #     ID = data[0]
+        #     owner = data[1]
+        #     folder_path = data[3]
+        #
+        #
+        #     match = re.search(r"L:\\\d{4}-Jobs\\(.+)", folder_path)
+        #     if match:
+        #         relative_path = match.group(1)
+        #     else:
+        #         # Fallback if unexpected format
+        #         relative_path = folder_path
+        #
+        #     folder_content.append((ID,owner, relative_path))
+
+        return [
+            (folder_id, parent_folder, folder_owner, folder_path)  # Use all values directly
+            for folder_id, folder_owner, parent_folder, folder_path in result
+        ]
 
 
-            match = re.search(r"L:\\\d{4}-Jobs\\(.+)", folder_path)
-            if match:
-                relative_path = match.group(1)
-            else:
-                # Fallback if unexpected format
-                relative_path = folder_path
-
-            folder_content.append((owner, relative_path))
-
-        return folder_content
-
-
-def query_permissions_info(year):
+def query_permissions_info(folder_id):
 
     with sqlite3.connect('C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db') as connection:
         cursor = connection.cursor()
-        cursor.execute('''SELECT Principal, Permission_Type, Inheritance_Type, Inheritance_Source
-                          FROM Job j
-                                   LEFT JOIN Folder_Contents f ON j.ID = f.Job_ID
-                                   LEFT JOIN Permissions p ON f.ID = p.Folder_Content_ID
-                          WHERE j.Job_Year = ?
-                          ORDER BY p.ID ASC
+        cursor.execute('''SELECT p.Principal, p.Permission_Type, p.Inheritance_Type, p.Inheritance_Source
+                          FROM Permissions p
+                          WHERE p.Folder_Content_ID = ?
                              
-                       ''', (year,))
+                       ''', (folder_id,))
 
         # Fetch all results at once
         result = cursor.fetchall()
@@ -384,10 +382,12 @@ def query_permissions_info(year):
             return []
 
         # Process and return results
-        return result
+        return [
+            (Principal,Permission_Type,Inheritance_Type,Inheritance_Source) for Principal, Permission_Type, Inheritance_Type, Inheritance_Source in result
+        ]
 
 
-# test = query_permissions_info(2077)
+# test = query_permissions_info(1)
 # for x in test:
 #     print(x)
 
