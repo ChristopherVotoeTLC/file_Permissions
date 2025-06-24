@@ -1,11 +1,12 @@
 import re
 from datetime import datetime
 
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QObject, QTimer
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QLabel, QListWidget, QProgressBar, QFileDialog,
-    QLineEdit, QShortcut, QPushButton, QCheckBox, QApplication, QHBoxLayout, QTreeWidget, QTreeWidgetItem
+    QLineEdit, QShortcut, QPushButton, QCheckBox, QApplication, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
+    QTableWidgetItem, QTableWidget, QHeaderView
 )
 import qtawesome as qta
 import os
@@ -16,6 +17,21 @@ from Database.database import (
     query_job_info, query_folder_content_info, query_permissions_info, process_job_folders, delete_folder,
     add_folder_content,add_permissions,update_permissions
 )
+class PermissionLoaderWorker(QObject):
+    finished = pyqtSignal(object)
+    #progress = pyqtSignal(int)
+    error = pyqtSignal(str)
+
+    def __init__(self, folder_id):
+        super().__init__()
+        self.folder_id = folder_id
+
+    def run(self):
+        try:
+            permissions = query_permissions_info(self.folder_id)
+            self.finished.emit(permissions)
+        except Exception as e:
+            self.error.emit(str(e))
 
 class ProcessJobThread(QThread):
     finished = pyqtSignal()
@@ -29,12 +45,36 @@ class ProcessJobThread(QThread):
         process_job_folders(self.file_path)
         self.finished.emit()
 
+class FolderExpansionWorker(QObject):
+    finished = pyqtSignal(object)
+    progress = pyqtSignal(int)
+    error = pyqtSignal(str)
+
+    def __init__(self, job_id, folders, compare_fn):
+        super().__init__()
+        self.job_id = job_id
+        self.folders = folders
+        self.compare_fn = compare_fn
+
+    def run(self):
+        folder_map = {}
+        try:
+            total = len(self.folders)
+            for idx, (folder_id, parent, owner, path, mod_date) in enumerate(self.folders):
+                result = self.compare_fn(path, mod_date, self.job_id, parent)
+                if result in ("DB up to date", "DB UPDATED"):
+                    folder_map.setdefault(parent, []).append((folder_id, owner, path))
+                self.progress.emit(int((idx + 1) / total * 100))
+            self.finished.emit(folder_map)
+        except Exception as e:
+            self.error.emit(str(e))
 
 class TestGUI(QMainWindow):
 
     def __init__(self):
         super().__init__()
         self.start_gui()
+        self.reference_permissions = {}
 
     def start_gui(self):
         # Set up a window
@@ -180,6 +220,13 @@ class TestGUI(QMainWindow):
         background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
         border: none;
     }
+    QTableWidget {
+        background: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:1, stop:0 #F5F5F5, stop:1 #4ca1af);
+        color: #000000; /*Input field text color*/
+        font-weight: bold;
+        font-family: "Roboto", sans-serif;
+        font-size: 15px; 
+    }
 """)
 
         # Central widget and layout
@@ -280,20 +327,31 @@ class TestGUI(QMainWindow):
 
         # Tree widget for displaying folder structure and permissions
         self.tree_widget = QTreeWidget()
-        self.tree_widget.setHeaderLabels(["Folder","Folder Owner", "Principle","Permission","Inheritance Source","Inheritance Type"])
+        self.tree_widget.setHeaderLabels(["Folder","Folder Owner"])
 
         self.inherited_permissions = {}
 
-        self.tree_widget.setColumnWidth(0, 350)
+        self.tree_widget.setColumnWidth(0, 500)
         self.tree_widget.setColumnWidth(1, 200)
-        self.tree_widget.setColumnWidth(2, 275)
-        self.tree_widget.setColumnWidth(3, 200)
-        self.tree_widget.setColumnWidth(4, 450)
-        self.tree_widget.setColumnWidth(5, 250)
+        # self.tree_widget.setColumnWidth(2, 275)
+        # self.tree_widget.setColumnWidth(3, 200)
+        # self.tree_widget.setColumnWidth(4, 450)
+        # self.tree_widget.setColumnWidth(5, 250)
         layout.addWidget(self.tree_widget)
 
         self.tree_widget.itemExpanded.connect(self.on_tree_expand)
         self.tree_widget.itemClicked.connect(self.on_tree_item_clicked)
+
+        self.permissions_table = QTableWidget()
+        self.permissions_table.setColumnCount(4)
+        self.permissions_table.setHorizontalHeaderLabels(["Principal", "Permission", "Inheritance Type", "Source"])
+        self.permissions_table.horizontalHeader().setStretchLastSection(True)
+        self.permissions_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.permissions_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.permissions_table.setSortingEnabled(False)
+        self.permissions_table.verticalHeader().setVisible(False)
+        self.permissions_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        layout.addWidget(self.permissions_table)
 
         # # Add a test item with a placeholder "Loading..." child
         # test_item = QTreeWidgetItem(["Sample Job", "Owner", "", "", "", ""])
@@ -465,7 +523,6 @@ class TestGUI(QMainWindow):
             child = item.child(i)
             self.clear_items(child)
 
-
     def browse_folder(self):
         selected_folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if selected_folder:
@@ -514,134 +571,69 @@ class TestGUI(QMainWindow):
                 print(f"Error in handle_submit: {e}")
 
     def on_tree_expand(self, item):
-        try:
-            self.progress_bar.setValue(0)
-            if item.childCount() == 1 and item.child(0).text(0) == "Loading...":
-                item.takeChildren()
-
-
-                node_info = item.data(0, Qt.UserRole)
-                if not node_info or "type" not in node_info:
-                    print(f"Invalid metadata for the expanded item: {item.text(0)}")
-                    return
-
-
-                if node_info["type"] == "job":
-                    try:
-                        folders = query_folder_content_info(node_info["id"])
-
-                        # Create a mapping of parent IDs to their children
-                        folder_map = {}
-                        self.progress_bar.setValue(25)
-                        for folder_id, parent_folder, folder_owner, folder_path,folder_date_modified in folders:
-
-                            compare_source =self.compare_db_and_drive_folders(folder_path,folder_date_modified,job_id=node_info["id"],parent_folder=parent_folder)
-                            if compare_source == "DB up to date" or compare_source =="DB UPDATED":
-                                folder_map.setdefault(parent_folder, []).append(
-                                    (folder_id, folder_owner, folder_path)
-                                )
-
-
-                        # Builds folder tree
-                        self.add_subfolders(item, None, folder_map)
-
-                    except Exception as e:
-                        print(f"Error loading folders for job {node_info['id']}: {e}")
-
-
-                elif node_info["type"] == "folder":
-                    try:
-                        # Fetch permissions for this folder
-                        permissions = query_permissions_info(node_info["id"])
-                        print(f"Permissions for folder {node_info['path']}: {permissions}")
-
-                        # Add permissions as children of this folder
-                        for principal, perm, inh_type, inh_source in permissions:
-                            # Add permission as a child
-                            perm_item = QTreeWidgetItem(["", "", principal, perm, inh_type, inh_source])
-                            item.addChild(perm_item)
-
-                    except Exception as e:
-                        print(f"Error loading permissions for folder {node_info['id']}: {e}")
-
-                # Mark the node as loaded
-                node_info["loaded"] = True
-                item.setData(0, Qt.UserRole, node_info)
-                self.progress_bar.setValue(100)
-
-        except Exception as e:
-            print(f"Error during tree expansion: {e}")
-
-    def on_tree_item_clicked(self, item, column):
-
-        try:
-            if hasattr(self,"previous_item") and self.previous_item ==item:
-                print(f"Item '{item.text(0)} is active, skipping")
-                self.reset_tree(item)
-                self.previous_item=None
+        self.progress_bar.setValue(0)
+        if item.childCount() == 1 and item.child(0).text(0) == "Loading...":
+            item.takeChildren()
+            node_info = item.data(0, Qt.UserRole)
+            if not node_info or "type" not in node_info:
                 return
 
+            if node_info["type"] == "job":
+                folders = query_folder_content_info(node_info["id"])
 
+                self.folder_thread = QThread()
+                self.folder_worker = FolderExpansionWorker(
+                    job_id=node_info["id"],
+                    folders=folders,
+                    compare_fn=self.compare_db_and_drive_folders
+                )
+                self.folder_worker.moveToThread(self.folder_thread)
 
+                self.folder_worker.progress.connect(self.update_progress_bar)
+                self.folder_worker.finished.connect(lambda folder_map: self.on_folders_loaded(item, folder_map))
+                self.folder_worker.error.connect(lambda msg: print(f"[Worker error] {msg}"))
+
+                self.folder_thread.started.connect(self.folder_worker.run)
+                self.folder_worker.finished.connect(self.folder_thread.quit)
+                self.folder_worker.finished.connect(self.folder_worker.deleteLater)
+                self.folder_thread.finished.connect(self.folder_thread.deleteLater)
+
+                self.folder_thread.start()
+
+            elif node_info["type"] == "folder":
+                permissions = query_permissions_info(node_info["id"])
+                for principal, perm, inh_type, inh_source in permissions:
+                    item.addChild(QTreeWidgetItem(["", "", principal, perm, inh_type, inh_source]))
+                self.progress_bar.setValue(100)
+                node_info["loaded"] = True
+                item.setData(0, Qt.UserRole, node_info)
+
+    def on_tree_item_clicked(self, item, column):
+        try:
             self.progress_bar.setValue(13)
 
             node_info = item.data(0, Qt.UserRole)
             if not node_info or "type" not in node_info:
-                print(f"Invalid metadata for the clicked item: {item.text(0)}")
                 return
 
-            # Check if the clicked item is a folder
             if node_info["type"] == "folder":
+                self.start_progress_animation()
+                folder_id = node_info["id"]
 
+                # Threading begins here
+                self.permission_thread = QThread()
+                self.permission_worker = PermissionLoaderWorker(folder_id)
+                self.permission_worker.moveToThread(self.permission_thread)
 
-                if node_info.get("loaded", False):
-                    print(f"Permissions for folder '{item.text(0)}' are already loaded.")
-                    self.reset_tree(item)
-                    self.progress_bar.setValue(0)
-                    return
+                self.permission_worker.finished.connect(lambda perms: self.on_permissions_loaded(perms, folder_id))
+                self.permission_worker.error.connect(lambda msg: print(f"[Permission worker error] {msg}"))
 
+                self.permission_thread.started.connect(self.permission_worker.run)
+                self.permission_worker.finished.connect(self.permission_thread.quit)
+                self.permission_worker.finished.connect(self.permission_worker.deleteLater)
+                self.permission_thread.finished.connect(self.permission_thread.deleteLater)
 
-                permissions = query_permissions_info(node_info["id"])
-                print(f"Permissions fetched for folder '{item.text(0)}': {permissions}")
-
-
-                parent_folder_id = node_info.get("parent_folder")
-                parent_permissions = self.inherited_permissions.get(parent_folder_id, set())
-
-                # Filter out inherited permissions
-                unique_permissions = []
-                current_permissions = set()
-                for principal, perm, source, inh_type in permissions:
-                    # Check if the principal and permission are not already inherited
-                    if (principal, perm) not in parent_permissions:
-                        unique_permissions.append((principal, perm, source, inh_type))
-                        current_permissions.add((principal, perm))
-
-
-                if unique_permissions:
-                    principals = "\n".join([perm[0] for perm in unique_permissions])
-                    perms = "\n".join([perm[1] for perm in unique_permissions])
-                    inh_types = "\n".join([perm[3] for perm in unique_permissions])
-                    sources = "\n".join([perm[2] for perm in unique_permissions])
-
-
-                    item.setText(2, principals)
-                    item.setText(3, perms)
-                    item.setText(4, inh_types)
-                    item.setText(5, sources)
-                else:
-                    # If no unique permissions exist
-                    item.setText(3, "All Permissions Inherited")
-
-                # Update inherited permissions for the current folder
-                self.inherited_permissions[node_info["id"]] = current_permissions
-
-
-                node_info["loaded"] = True
-                item.setData(0, Qt.UserRole, node_info)
-                self.progress_bar.setValue(100)
-
-            self.previous_item = item
+                self.permission_thread.start()
 
         except Exception as e:
             print(f"Error handling item click: {e}")
@@ -749,3 +741,80 @@ class TestGUI(QMainWindow):
         except Exception as e:
             print(f"Error in compare_db_and_drive_folders: {e}")
 
+    def update_permissions_table(self, folder_id, permissions):
+        self.permissions_table.setRowCount(0)
+        self.permissions_table.setUpdatesEnabled(False)
+
+
+        explicit_keys = {
+            f"{principal}+{perm}"
+            for principal, perm, scope, source in permissions
+            if source == "Set Here"
+        }
+
+        seen_permissions = set()
+        rows_to_add = []
+
+
+        for principal, perm, scope, source in permissions:
+            base_key = f"{principal}+{perm}"
+            full_key = f"{principal}+{perm}+{scope}+{source}"
+
+
+            if source != "Set Here" and base_key in explicit_keys:
+                #print(f"Skipping inherited {principal} ({perm}) — already has Set Here")
+                continue
+
+            # Avoid duplicate exact entries
+            if full_key in seen_permissions:
+                continue
+
+            rows_to_add.append((principal, perm, scope, source))
+            seen_permissions.add(full_key)
+
+
+        self.permissions_table.setRowCount(len(rows_to_add))
+
+        for row_idx, (principal, perm, scope, source) in enumerate(rows_to_add):
+            self.permissions_table.setItem(row_idx, 0, QTableWidgetItem(principal))
+            self.permissions_table.setItem(row_idx, 1, QTableWidgetItem(perm))
+            self.permissions_table.setItem(row_idx, 2, QTableWidgetItem(scope))
+            self.permissions_table.setItem(row_idx, 3, QTableWidgetItem(source))
+
+        self.permissions_table.setUpdatesEnabled(True)
+
+    def on_folders_loaded(self, item, folder_map):
+        self.add_subfolders(item, None, folder_map)
+        node_info = item.data(0, Qt.UserRole)
+        if node_info:
+            node_info["loaded"] = True
+            item.setData(0, Qt.UserRole, node_info)
+        self.progress_bar.setValue(100)
+
+    def on_permissions_loaded(self, permissions, folder_id):
+        self.stop_progress_animation()
+        self.reference_permissions = {
+            f"{p}+{perm}": source
+            for p, perm, scope, source in permissions
+            if source == "Set Here"
+        }
+        self.update_permissions_table(folder_id, permissions)
+        self.progress_bar.setValue(100)
+
+    def start_progress_animation(self):
+        self.progress_value = 0
+        self.progress_timer = QTimer()
+        self.progress_timer.timeout.connect(self.animate_progress)
+        self.progress_timer.start(40)
+
+    def animate_progress(self):
+        if self.progress_value < 95:
+            self.progress_value += 1
+            self.progress_bar.setValue(self.progress_value)
+        else:
+            self.progress_timer.stop()
+
+    def stop_progress_animation(self):
+        if hasattr(self, 'progress_timer'):
+            self.progress_timer.stop()
+        self.progress_bar.setValue(100)
