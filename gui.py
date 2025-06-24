@@ -1,4 +1,6 @@
 import re
+from datetime import datetime
+
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
@@ -8,15 +10,27 @@ from PyQt5.QtWidgets import (
 import qtawesome as qta
 import os
 from permissions import (
-    store_all_permissions_only_as_dict_multithreaded, store_user_permissions_only_as_dict_multithreaded,
-    store_group_permissions_only_as_dict_multithreaded
+    get_all_principal_permission,get_folder_owner
 )
 from Database.database import (
-query_job_info,query_folder_content_info,query_permissions_info
+    query_job_info, query_folder_content_info, query_permissions_info, process_job_folders, delete_folder,
+    add_folder_content,add_permissions,update_permissions
 )
 
-class TestGUI(QMainWindow):
+class ProcessJobThread(QThread):
+    finished = pyqtSignal()
 
+    def __init__(self, file_path):
+        super().__init__()
+        self.file_path = file_path
+
+    def run(self):
+        # Run the long process in a separate thread
+        process_job_folders(self.file_path)
+        self.finished.emit()
+
+
+class TestGUI(QMainWindow):
 
     def __init__(self):
         super().__init__()
@@ -414,7 +428,7 @@ class TestGUI(QMainWindow):
             self.search_items(top_item, search_term)
 
     def search_items(self, item, search_term):
-        # Reset item background color by default
+
         item.setBackground(0, Qt.transparent)
         item.setBackground(1, Qt.transparent)
         item.setBackground(2, Qt.transparent)
@@ -422,7 +436,7 @@ class TestGUI(QMainWindow):
         found = False
 
 
-        # Check if any column text contains the search term
+
         for col in range(item.columnCount()):
             if search_term in item.text(col).lower():
                 # Highlight the matching item
@@ -436,13 +450,13 @@ class TestGUI(QMainWindow):
             self.search_items(child, search_term)
 
     def clear_tree_selection(self):
-        # Iterate over all top-level items
+
         for i in range(self.tree_widget.topLevelItemCount()):
             top_item = self.tree_widget.topLevelItem(i)
             self.clear_items(top_item)
 
     def clear_items(self, item):
-        # Reset background color for each column
+
         for col in range(item.columnCount()):
             item.setBackground(col, Qt.transparent)
 
@@ -451,14 +465,19 @@ class TestGUI(QMainWindow):
             child = item.child(i)
             self.clear_items(child)
 
-    # Used to open a folder directory when browse is clicked
+
     def browse_folder(self):
         selected_folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if selected_folder:
             self.file_path_input.setText(selected_folder)
 
-    def handle_submit(self):
 
+    def process_done(self):
+        error = QTreeWidgetItem(["", "", "", "", "", ""])
+        error.setText(0, "Job  in database")
+        self.tree_widget.addTopLevelItem(error)
+
+    def handle_submit(self):
         try:
             file_path = self.file_path_input.text().strip()
             pattern = r"L:/\d{4}-Jobs.*"
@@ -466,8 +485,26 @@ class TestGUI(QMainWindow):
                 year = file_path.split("/")[1][:4]
                 print(f"Year received: {year}")
                 job_info = query_job_info(year)
+                if not job_info: #The year is not in the DB, process it into DB BUT will take some time depending on size
+                    self.tree_widget.clear()
+                    print("Job not in database")
+                    error = QTreeWidgetItem(["", "", "", "", "", ""])
+                    error.setText(0, "Job not in database")
+                    error.setText(1, "Please wait while the job is processed")
+                    error.setText(2, "This may take a While")
+                    error.setText(3, "If the job is still not processed, please contact the administrator")
+                    error.setText(4, "If the job is processed, please try again")
+                    error.setText(5, "")
+                    self.tree_widget.addTopLevelItem(error)
 
-                # Clear the tree and populate jobs
+                    self.tree_widget.repaint()
+                    QApplication.processEvents()
+
+                    self.thread = ProcessJobThread(file_path)
+                    self.thread.finished.connect(self.process_done)
+                    self.thread.start()
+                    return
+
                 self.tree_widget.clear()
                 self.populate_jobs(job_info)
             else:
@@ -478,7 +515,7 @@ class TestGUI(QMainWindow):
 
     def on_tree_expand(self, item):
         try:
-
+            self.progress_bar.setValue(0)
             if item.childCount() == 1 and item.child(0).text(0) == "Loading...":
                 item.takeChildren()
 
@@ -491,15 +528,19 @@ class TestGUI(QMainWindow):
 
                 if node_info["type"] == "job":
                     try:
-
                         folders = query_folder_content_info(node_info["id"])
 
                         # Create a mapping of parent IDs to their children
                         folder_map = {}
-                        for folder_id, parent_folder, folder_owner, folder_path in folders:
-                            folder_map.setdefault(parent_folder, []).append(
-                                (folder_id, folder_owner, folder_path)
-                            )
+                        self.progress_bar.setValue(25)
+                        for folder_id, parent_folder, folder_owner, folder_path,folder_date_modified in folders:
+
+                            compare_source =self.compare_db_and_drive_folders(folder_path,folder_date_modified,job_id=node_info["id"],parent_folder=parent_folder)
+                            if compare_source == "DB up to date" or compare_source =="DB UPDATED":
+                                folder_map.setdefault(parent_folder, []).append(
+                                    (folder_id, folder_owner, folder_path)
+                                )
+
 
                         # Builds folder tree
                         self.add_subfolders(item, None, folder_map)
@@ -507,7 +548,7 @@ class TestGUI(QMainWindow):
                     except Exception as e:
                         print(f"Error loading folders for job {node_info['id']}: {e}")
 
-                # For "folder" type, fetch permissions lazily (only when the folder is clicked/expanded)
+
                 elif node_info["type"] == "folder":
                     try:
                         # Fetch permissions for this folder
@@ -526,6 +567,7 @@ class TestGUI(QMainWindow):
                 # Mark the node as loaded
                 node_info["loaded"] = True
                 item.setData(0, Qt.UserRole, node_info)
+                self.progress_bar.setValue(100)
 
         except Exception as e:
             print(f"Error during tree expansion: {e}")
@@ -539,9 +581,7 @@ class TestGUI(QMainWindow):
                 self.previous_item=None
                 return
 
-            # if hasattr(self, "previous_item") and self.previous_item is not None:
-            #     #self.reset_tree(self.previous_item)
-            #     print("test")
+
 
             self.progress_bar.setValue(13)
 
@@ -584,13 +624,13 @@ class TestGUI(QMainWindow):
                     inh_types = "\n".join([perm[3] for perm in unique_permissions])
                     sources = "\n".join([perm[2] for perm in unique_permissions])
 
-                    # Update the tree item with unique permissions
+
                     item.setText(2, principals)
                     item.setText(3, perms)
                     item.setText(4, inh_types)
                     item.setText(5, sources)
                 else:
-                    # If no unique permissions exist, indicate this
+                    # If no unique permissions exist
                     item.setText(3, "All Permissions Inherited")
 
                 # Update inherited permissions for the current folder
@@ -605,6 +645,7 @@ class TestGUI(QMainWindow):
 
         except Exception as e:
             print(f"Error handling item click: {e}")
+
     def reset_tree(self,item):
         try:
             node_info = item.data(0, Qt.UserRole)
@@ -639,7 +680,7 @@ class TestGUI(QMainWindow):
                                 {"type": "folder", "id": folder_id, "path": folder_path, "parent_folder": parent_id,
                                  "loaded": False})
 
-
+            #print("I am now")
             # Add this folder to the parent item
             parent_item.addChild(folder_item)
 
@@ -655,53 +696,6 @@ class TestGUI(QMainWindow):
                 job_branch.addChild(QTreeWidgetItem(["Loading..."]))
                 self.tree_widget.addTopLevelItem(job_branch)
 
-            # # Build a dictionary to represent the folder hierarchy for this job.
-                # folder_hierarchy = {}
-                # for folder_content_id, folder_owner, folder_path in folder_content_info:
-                #     # Only add folders that belong to the current job.
-                #     if not folder_path.startswith(job):
-                #         continue
-                #
-                #     # Normalize the folder path relative to the job folder.
-                #     relative_path = folder_path[len(job):].strip("\\")
-                #     parts = relative_path.split("\\") if relative_path else []
-                #
-                #     # Build the nested hierarchy.
-                #     current_level = folder_hierarchy
-                #     for part in parts:
-                #         if part not in current_level:
-                #             current_level[part] = {
-                #                 "owner": folder_owner,
-                #                 "id": folder_content_id,
-                #                 "subfolders": {}
-                #             }
-                #         # Move deeper in the hierarchy.
-                #         current_level = current_level[part]["subfolders"]
-                #
-                # # Recursive function to add a folder hierarchy and its permissions to the tree.
-                # def add_subtree(parent_item, subtree, permissions_info):
-                #     for folder_name, folder_data in subtree.items():
-                #         folder_owner = folder_data["owner"]
-                #         folder_content_id = folder_data["id"]
-                #
-                #         # Create a tree item for the current folder.
-                #         folder_item = QTreeWidgetItem([folder_name, folder_owner, "", "", "", ""])
-                #         parent_item.addChild(folder_item)
-                #
-                #         # Add permissions to the current folder.
-                #         for perm_folder_content_id, principal, perm_type, inheritance_type, source in permissions_info:
-                #             if perm_folder_content_id == folder_content_id:
-                #                 permission_item = QTreeWidgetItem([
-                #                     "", "", principal, perm_type, inheritance_type, source
-                #                 ])
-                #                 folder_item.addChild(permission_item)
-                #
-                #         # Recursively add subfolders.
-                #         add_subtree(folder_item, folder_data["subfolders"], permissions_info)
-                #
-                # # Add the folder hierarchy for this job into the tree.
-                # add_subtree(job_branch, folder_hierarchy, permissions_info)
-
         except Exception as e:
             print(f"Error in populate_jobs: {e}")
 
@@ -709,64 +703,49 @@ class TestGUI(QMainWindow):
 
         self.progress_bar.setValue(value)
 
-    # def toggle_display_all_permissions(self, state):
-    #
-    #     if state == Qt.Checked:
-    #         print("Display All Permissions is ON: Pre-loading all permissions.")
-    #         self.load_all_permissions()
-    #     else:
-    #         print("Display All Permissions is OFF: Using lazy loading.")
-    #         self.clear_tree_permissions()  # Optionally clear permissions if needed
-    #
-    # def load_all_permissions(self):
-    #
-    #     for i in range(self.tree_widget.topLevelItemCount()):
-    #         top_item = self.tree_widget.topLevelItem(i)
-    #         print(f"{top_item}")
-    #         self.fetch_permissions_recursively(top_item)
-    #
-    # def fetch_permissions_recursively(self, item):
-    #
-    #     try:
-    #         # Print info about the current node being processed
-    #         print(f"Processing item: {item.text(0)}")
-    #
-    #         node_info = item.data(0, Qt.UserRole)
-    #
-    #         # Check if the item is of type 'folder'
-    #         if node_info and node_info.get("type") == "job":
-    #             print(f"Fetching permissions for folder: {item.text(0)}")
-    #
-    #             # Check if permissions are already loaded
-    #             if node_info.get("loaded", False):
-    #                 print(f"Permissions already loaded for folder: {item.text(0)}")
-    #             else:
-    #                 # Fetch permissions for the folder
-    #                 permissions = query_permissions_info(node_info["id"])
-    #                 print(f"Fetched permissions for folder '{item.text(0)}': {permissions}")
-    #
-    #                 # Add permissions as children of this folder
-    #                 for principal, perm, inh_type, inh_source in permissions:
-    #                     perm_item = QTreeWidgetItem(["", "", principal, perm, inh_type, inh_source])
-    #                     item.addChild(perm_item)
-    #
-    #                 # Mark the folder as loaded
-    #                 node_info["loaded"] = True
-    #                 item.setData(0, Qt.UserRole, node_info)
-    #
-    #         # Recursively process all children
-    #         for i in range(item.childCount()):
-    #             child_item = item.child(i)
-    #             self.fetch_permissions_recursively(child_item)
-    #
-    #     except Exception as e:
-    #         print(f"Error loading permissions for item '{item.text(0)}': {e}")
-    # # def copy_selected_items(self):
-    # #
-    # #     selected_items = self.project_info_list.selectedItems()
-    # #     selected_text = "\n".join(item.text() for item in selected_items)
-    # #     QApplication.clipboard().setText(selected_text)
-    # #
-    # # def select_all_items(self):
-    # #
-    # #     self.project_info_list.selectAll()
+    def compare_db_and_drive_folders(self,folder_path,db_date_modified,job_id,parent_folder):
+        try:
+            folder_exist = os.path.exists(folder_path)
+            if folder_exist:
+                #self.progress_bar.setValue(10)
+                if db_date_modified is not None: #makes sure the folder is in DB and drive
+
+                    #THE DB is up to date with the drive
+                    db_datetime = datetime.strptime(db_date_modified, '%Y-%m-%d %H:%M:%S')
+                    filesystem_date_modified = datetime.fromtimestamp(os.path.getmtime(folder_path)).replace(microsecond=0)
+                    if db_datetime >= filesystem_date_modified:
+                        #print("DB is up to date")
+                        return "DB up to date"
+                    else:
+
+                        # THE DB isn't up to date with the drive
+                        print(f"{folder_path} needs to be updated in the DB. Updating...")
+                        updated_folder = get_all_principal_permission(folder_path)
+                        #print(f"{updated_folder}")
+                        update_permissions(folder_path,updated_folder,filesystem_date_modified)
+                        return "DB UPDATED"
+                else:
+                    # The DB doesn't have a folder in the drive
+                    print(f"{folder_path} is newer in the filesystem. Adding to DB...")
+                    new_folder_owner = get_folder_owner(folder_path)
+                    new_folder_date_modified = datetime.fromtimestamp(os.path.getmtime(folder_path)).strftime('%Y-%m-%d %H:%M:%S')
+                    new_folder_perms = get_all_principal_permission(folder_path)
+
+                    folder_id = add_folder_content(connection='C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db',job_id=job_id,folder_path=folder_path,folder_owner=new_folder_owner,folder_date_modified=new_folder_date_modified,parent_folder_id=parent_folder)
+                    if folder_id:
+                        add_permissions(connection='C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db', folder_content_id=folder_id, permissions=new_folder_perms)
+                        print(f"Added new folder and permissions for {folder_path}")
+                        return "New Folder Added"
+                    else:
+                        print(f"Failed to add {folder_path} to the database.")
+                        return "Error Adding New Folder"
+
+            else:
+                # The DB has a folder that has been deleted in the drive
+                print(f"{folder_path} doesn't exist... deleting")
+                delete_folder(folder_path)
+                print(f"delete successful of {folder_path}")
+                return "DELETED"
+        except Exception as e:
+            print(f"Error in compare_db_and_drive_folders: {e}")
+

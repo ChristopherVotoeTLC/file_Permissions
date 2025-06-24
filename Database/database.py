@@ -49,7 +49,7 @@ def add_permissions(connection, folder_content_id, permissions):
     except Exception as e:
         print(f"Error adding permissions for content ID {folder_content_id}: {e}")
 
-# Function to process job folders
+#Function to process job folders
 def process_job_folders(root_jobs_folder):
 
     with sqlite3.connect('C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db') as connection:
@@ -57,7 +57,7 @@ def process_job_folders(root_jobs_folder):
         for job_folder in os.listdir(root_jobs_folder):
             job_path = os.path.join(root_jobs_folder, job_folder)
 
-            #
+
             if not os.path.isdir(job_path):
                 continue
 
@@ -110,7 +110,7 @@ def process_job_folders(root_jobs_folder):
 # Query job info
 def query_job_info(year):
 
-    with sqlite3.connect('C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db') as connection:
+    with sqlite3.connect('C:\\Users\\christopher.votoe\\PycharmProjects\\file_Permissions\\Database\\TLC_folderpermission.db') as connection:
         cursor = connection.cursor()
         cursor.execute('''SELECT ID,Job_Code, Job_Name
                           FROM Job
@@ -125,15 +125,13 @@ def query_job_info(year):
         return [(ID, f"{Job_Code}-{Job_Name}") for ID, Job_Code, Job_Name in result]
 
 
-
 # Query folder content info
 def query_folder_content_info(job_id):
-
-    with sqlite3.connect('C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db') as connection:
+    with sqlite3.connect('C:\\Users\\christopher.votoe\\PycharmProjects\\file_Permissions\\Database\\TLC_folderpermission.db') as connection:
         cursor = connection.cursor()
-        cursor.execute('''SELECT f.ID,f.Folder_Owner, f.Parent_Folder,f.Folder_Path
+        cursor.execute('''SELECT f.ID,f.Folder_Owner, f.Parent_Folder,f.Folder_Path,f.Folder_Date_Modified
                           FROM Folder_Contents f
-                          WHERE f.Job_ID = ?                                            
+                          WHERE f.Job_ID = ?
                        ''', (job_id,))
 
         result = cursor.fetchall()
@@ -143,36 +141,40 @@ def query_folder_content_info(job_id):
             return []
 
 
-        # folder_content = []
-        # for data in result:
-        #     ID = data[0]
-        #     owner = data[1]
-        #     folder_path = data[3]
-        #
-        #
-        #     match = re.search(r"L:\\\d{4}-Jobs\\(.+)", folder_path)
-        #     if match:
-        #         relative_path = match.group(1)
-        #     else:
-        #         # Fallback if unexpected format
-        #         relative_path = folder_path
-        #
-        #     folder_content.append((ID,owner, relative_path))
+        return [
+            (folder_id, parent_folder, folder_owner, folder_path,folder_date_modified)
+            for folder_id, folder_owner, parent_folder, folder_path, folder_date_modified in result
+        ]
+
+def query_folder_content_folder_path(folder_id):
+    with sqlite3.connect('C:\\Users\\christopher.votoe\\PycharmProjects\\file_Permissions\\Database\\TLC_folderpermission.db') as connection:
+        cursor = connection.cursor()
+        cursor.execute('''SELECT f.Folder_Path,f.Folder_Date_Modified
+                          FROM Folder_Contents f
+                          WHERE f.ID = ?
+                       ''', (folder_id,))
+
+        result = cursor.fetchall()
+
+        if not result:
+            print("No folder content found for the given year.")
+            return []
+
 
         return [
-            (folder_id, parent_folder, folder_owner, folder_path)
-            for folder_id, folder_owner, parent_folder, folder_path in result
+            (folder_path, folder_date_modified)
+            for folder_path, folder_date_modified in result
         ]
 
 
 def query_permissions_info(folder_id):
 
-    with sqlite3.connect('C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db') as connection:
+    with sqlite3.connect('C:\\Users\\christopher.votoe\\PycharmProjects\\file_Permissions\\Database\\TLC_folderpermission.db') as connection:
         cursor = connection.cursor()
         cursor.execute('''SELECT p.Principal, p.Permission_Type, p.Inheritance_Type, p.Inheritance_Source
                           FROM Permissions p
                           WHERE p.Folder_Content_ID = ?
-                             
+
                        ''', (folder_id,))
 
 
@@ -188,12 +190,72 @@ def query_permissions_info(folder_id):
             (Principal,Permission_Type,Inheritance_Type,Inheritance_Source) for Principal, Permission_Type, Inheritance_Type, Inheritance_Source in result
         ]
 
+def delete_folder(folder_path):
+    try:
+        with sqlite3.connect('C:\\Users\\christopher.votoe\\PycharmProjects\\file_Permissions\\Database\\TLC_folderpermission.db') as connection:
+            cursor = connection.cursor()
+            cursor.execute("""
+                           DELETE
+                           FROM Folder_Contents
+                           WHERE Folder_Path = ?
+                           """, (folder_path,))
 
-# test = query_permissions_info(1)
-# for x in test:
-#     print(x)
+
+            connection.commit()
+
+            print(f"Folder at path '{folder_path}' successfully deleted from the database.")
+    except sqlite3.Error as e:
+        print(f"An error occurred while deleting folder '{folder_path}': {e}")
+
+def update_permissions(folder_path,new_folder_permissions,filesystem_date_modified):
+    try:
+        with sqlite3.connect('C:\\Users\\christopher.votoe\\PycharmProjects\\file_Permissions\\Database\\TLC_folderpermission.db') as connection:
+            cursor = connection.cursor()
+
+            cursor.execute(""" UPDATE Folder_Contents
+                               SET Folder_Date_Modified = ?
+                               WHERE Folder_Path = ?
+                                """, (filesystem_date_modified,folder_path,))
+
+            cursor.execute(""" SELECT ID FROM Folder_Contents WHERE Folder_Path = ?
+                           
+                           """,(folder_path,))
+
+            folder_content_id=cursor.fetchone()
+
+            if not folder_content_id:
+                print("No folder content found for the given year.")
+                return False
+            else:
+                folder_id=folder_content_id[0]
+                #print(f"{folder_id}")
+
+            cursor.execute("""DELETE FROM Permissions WHERE Folder_Content_ID = ?""",(folder_id,))
+            #print("I'm here")
+
+            for principal, permission_type, inheritance_type, inheritance_source, folder_owner in new_folder_permissions:
+                #print(f"{principal} + {permission_type} + {inheritance_type} + {inheritance_source} + {folder_owner}")
+                cursor.execute('''
+                               INSERT INTO Permissions (Folder_Content_ID, Principal, Permission_Type, Inheritance_Type,
+                                                        Inheritance_Source)
+                               VALUES (?, ?, ?, ?, ?)
+                               ''', (folder_id, principal, permission_type, inheritance_type, inheritance_source))
+
+            connection.commit()
+            print(f"Permissions for folder '{folder_path}' updated successfully.")
+            return True
+
+    except sqlite3.Error as e:
+        print(f"An error occurred while deleting folder '{folder_path}': {e}")
+
+
+#process_job_folders("L:\\2021-Jobs")
 
 
 
 
-#process_job_folders("L:\\2077-Jobs")
+
+
+
+
+
