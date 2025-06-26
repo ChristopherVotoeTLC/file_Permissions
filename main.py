@@ -1,5 +1,4 @@
 
-
 from PyQt5.QtWidgets import QApplication
 from gui import TestGUI
 import sys

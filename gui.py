@@ -1,6 +1,12 @@
+from collections import defaultdict
+from time import strftime
+
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
+from math import ceil
 import re
 from datetime import datetime
-
+import csv
 from PyQt5.QtCore import QThread, pyqtSignal, Qt, QObject, QTimer
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
@@ -15,7 +21,7 @@ from permissions import (
 )
 from Database.database import (
     query_job_info, query_folder_content_info, query_permissions_info, process_job_folders, delete_folder,
-    add_folder_content,add_permissions,update_permissions
+    add_folder_content,add_permissions,update_permissions, query_info_for_csv
 )
 class PermissionLoaderWorker(QObject):
     finished = pyqtSignal(object)
@@ -66,6 +72,88 @@ class FolderExpansionWorker(QObject):
                     folder_map.setdefault(parent, []).append((folder_id, owner, path))
                 self.progress.emit(int((idx + 1) / total * 100))
             self.finished.emit(folder_map)
+        except Exception as e:
+            self.error.emit(str(e))
+
+class CSVExportWorker(QObject):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, year, base_path, save_path):
+        super().__init__()
+        self.year = year
+        self.base_path = base_path
+        self.save_path = save_path
+
+    def run(self):
+        try:
+            results = query_info_for_csv(self.year)
+            if not results:
+                self.error.emit(f"No permissions found for year {self.year}.")
+                return
+
+            base_prefix = fr"L:\{self.year}-Jobs"
+            rows_per_file = 1000000
+            timestamp = strftime("%Y_%m_%d_%H_%M")
+            export_folder = os.path.join(self.save_path, f"{self.year}_Permissions_Export_{timestamp}")
+            os.makedirs(export_folder, exist_ok=True)
+
+            # Group by job (use job_code as primary key)
+            job_groups = defaultdict(list)
+            for row in results:
+                job_name, job_code = row[0], row[1]
+                key = (job_code, job_name)
+                job_groups[key].append(row)
+
+            current_chunk_index = 1
+            current_row_count = 0
+            current_writer = None
+            current_file = None
+
+            def open_new_file():
+                nonlocal current_writer, current_file, current_row_count, current_chunk_index
+                file_path = os.path.join(export_folder, f"{self.year}_Permissions_Part{current_chunk_index}.csv")
+                current_file = open(file_path, mode='w', newline='', encoding='utf-8')
+                current_writer = csv.writer(current_file)
+                current_writer.writerow([
+                    "Job", "Relative Folder Path", "Folder Owner",
+                    "Principal", "Permission", "Inheritance Type", "Source"
+                ])
+                current_row_count = 0
+                current_chunk_index += 1
+                return file_path
+
+            open_new_file()
+
+            total_jobs = len(job_groups)
+            jobs_done = 0
+
+            for (job_code, job_name), entries in job_groups.items():
+                if current_row_count + len(entries) > rows_per_file:
+                    current_file.close()
+                    open_new_file()
+
+                for row in entries:
+                    _, _, folder_path, folder_owner, principal, permission, inh_type, inh_source = row
+                    combined_job = f"{job_code} - {job_name}"
+                    normalized_path = folder_path.replace("/", "\\")
+                    relative_path = normalized_path.replace(base_prefix + "\\", "").strip()
+
+                    current_writer.writerow([
+                        combined_job, relative_path, folder_owner,
+                        principal, permission, inh_type, inh_source
+                    ])
+                    current_row_count += 1
+
+                jobs_done += 1
+                self.progress.emit(int(jobs_done / total_jobs * 100))
+
+            if current_file:
+                current_file.close()
+
+            self.finished.emit(export_folder)
+
         except Exception as e:
             self.error.emit(str(e))
 
@@ -297,6 +385,11 @@ class TestGUI(QMainWindow):
         submit_button.clicked.connect(self.handle_submit)
         self.horizontal_layout.addWidget(submit_button)
 
+        export_csv = QPushButton("Export CSV")
+        export_csv.setIcon(qta.icon('fa5s.file-csv'))
+        export_csv.clicked.connect(self.export_csv_chunked_to_folder)
+        self.horizontal_layout.addWidget(export_csv)
+
         # Inheritance Checkbox
         # self.inheritance_checkbox = QCheckBox("Include Inherited Permissions (Will take longer to compute)")
         # self.inheritance_checkbox.setChecked(False)
@@ -469,6 +562,40 @@ class TestGUI(QMainWindow):
     #
     #     self.progress_bar.setValue(100)
 
+    def export_csv_chunked_to_folder(self):
+        year_path = self.file_path_input.text().strip()
+        match = re.match(r"L:/(\d{4})-Jobs", year_path)
+        if not match:
+            self.show_error_message("Please enter a valid path like L:/2024-Jobs...")
+            return
+
+        year = match.group(1)
+        folder = QFileDialog.getExistingDirectory(self, "Choose Folder to Save CSV Files")
+        if not folder:
+            return
+
+        self.progress_bar.setValue(3)
+
+        self.export_thread = QThread()
+        self.export_worker = CSVExportWorker(year, f"L:/{year}-Jobs", folder)
+        self.export_worker.moveToThread(self.export_thread)
+
+        self.export_worker.progress.connect(self.progress_bar.setValue)
+        self.export_worker.finished.connect(lambda path: self.show_export_done(path))
+        self.export_worker.error.connect(lambda msg: self.show_error_message(f"Export error: {msg}"))
+
+        self.export_thread.started.connect(self.export_worker.run)
+        self.export_worker.finished.connect(self.export_thread.quit)
+        self.export_worker.finished.connect(self.export_worker.deleteLater)
+        self.export_thread.finished.connect(self.export_thread.deleteLater)
+
+        self.export_thread.start()
+
+    def show_export_done(self, folder_path):
+        self.progress_bar.setValue(100)
+        #print(f"Export complete: {folder_path}")
+        #self.show_error_message(f"Export complete.\nFiles saved to: {folder_path}")
+
     def search_tree_1(self):
         search_term = self.search_tree.text().strip()
         if not search_term:
@@ -518,7 +645,6 @@ class TestGUI(QMainWindow):
         for col in range(item.columnCount()):
             item.setBackground(col, Qt.transparent)
 
-        # Recursively clear background color for all children
         for i in range(item.childCount()):
             child = item.child(i)
             self.clear_items(child)
@@ -527,7 +653,6 @@ class TestGUI(QMainWindow):
         selected_folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if selected_folder:
             self.file_path_input.setText(selected_folder)
-
 
     def process_done(self):
         error = QTreeWidgetItem(["", "", "", "", "", ""])
@@ -620,7 +745,7 @@ class TestGUI(QMainWindow):
                 self.start_progress_animation()
                 folder_id = node_info["id"]
 
-                # Threading begins here
+
                 self.permission_thread = QThread()
                 self.permission_worker = PermissionLoaderWorker(folder_id)
                 self.permission_worker.moveToThread(self.permission_thread)
@@ -646,13 +771,13 @@ class TestGUI(QMainWindow):
 
             # Reset only if the item is a folder
             if node_info["type"] == "folder":
-                # Clear the permission columns
+
                 item.setText(2, "")
                 item.setText(3, "")
                 item.setText(4, "")
                 item.setText(5, "")
 
-                # Mark the node as not loaded (if needed for reloading)
+
                 node_info["loaded"] = False
                 item.setData(0, Qt.UserRole, node_info)
                 self.progress_bar.setValue(0)
@@ -699,14 +824,14 @@ class TestGUI(QMainWindow):
         try:
             folder_exist = os.path.exists(folder_path)
             if folder_exist:
-                #self.progress_bar.setValue(10)
+
                 if db_date_modified is not None: #makes sure the folder is in DB and drive
 
                     #THE DB is up to date with the drive
                     db_datetime = datetime.strptime(db_date_modified, '%Y-%m-%d %H:%M:%S')
                     filesystem_date_modified = datetime.fromtimestamp(os.path.getmtime(folder_path)).replace(microsecond=0)
                     if db_datetime >= filesystem_date_modified:
-                        #print("DB is up to date")
+
                         return "DB up to date"
                     else:
 

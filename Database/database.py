@@ -52,7 +52,7 @@ def add_permissions(connection, folder_content_id, permissions):
 #Function to process job folders
 def process_job_folders(root_jobs_folder):
 
-    with sqlite3.connect('C:\\Program Files\\DB Browser for SQLite\\TLC_folderpermission.db') as connection:
+    with sqlite3.connect('C:\\Users\\christopher.votoe\\PycharmProjects\\file_Permissions\\Database\\TLC_folderpermission.db') as connection:
 
         for job_folder in os.listdir(root_jobs_folder):
             job_path = os.path.join(root_jobs_folder, job_folder)
@@ -166,6 +166,19 @@ def query_folder_content_folder_path(folder_id):
             for folder_path, folder_date_modified in result
         ]
 
+def query_info_for_csv(year):
+    with sqlite3.connect('C:\\Users\\christopher.votoe\\PycharmProjects\\file_Permissions\\Database\\TLC_folderpermission.db') as connection:
+        cursor = connection.cursor()
+        cursor.execute('''
+SELECT j.Job_Name, j.Job_Code, f.Folder_Path, f.Folder_Owner, p.Principal, p.Permission_Type, p.Inheritance_Type, p.Inheritance_Source
+FROM Job j
+JOIN Folder_Contents f ON f.Job_ID = j.ID
+JOIN Permissions p ON p.Folder_Content_ID = f.ID
+WHERE j.Job_Year = ?
+                       ''', (year,))
+
+        result = cursor.fetchall()
+        return [(job_name,job_code,folder_path,folder_owner,principal,permission,inheritance_type,inheritance_source) for job_name,job_code,folder_path,folder_owner,principal,permission,inheritance_type,inheritance_source in result]
 
 def query_permissions_info(folder_id):
 
@@ -249,7 +262,7 @@ def update_permissions(folder_path,new_folder_permissions,filesystem_date_modifi
         print(f"An error occurred while deleting folder '{folder_path}': {e}")
 
 
-#process_job_folders("L:\\2021-Jobs")
+
 
 
 
